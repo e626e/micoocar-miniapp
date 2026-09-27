@@ -8,6 +8,7 @@ function App() {
     const tg = window.Telegram?.WebApp;
 
     if (!tg) {
+      console.log('Telegram WebApp SDK не найден');
       return;
     }
 
@@ -17,13 +18,18 @@ function App() {
     tg.setHeaderColor('#ffffff');
     tg.setBackgroundColor('#ffffff');
 
+    document.documentElement.style.colorScheme = 'light';
+    document.documentElement.style.backgroundColor = '#ffffff';
+
+    document.body.style.backgroundColor = '#ffffff';
+    document.body.style.color = '#111111';
+
     setUser(tg.initDataUnsafe?.user || null);
   }, []);
 
   return (
     <div className="app">
 
-      {/* HEADER */}
       <header className="header">
         <div>
           <div className="logo">
@@ -40,11 +46,8 @@ function App() {
         </div>
       </header>
 
-
-      {/* MAIN */}
       <main>
 
-        {/* HERO */}
         <section className="hero">
 
           <div className="hero-text">
@@ -71,12 +74,9 @@ function App() {
 
         </section>
 
-
-        {/* POPULAR */}
         <section className="section">
 
           <div className="section-title">
-
             <h2>
               Популярные
             </h2>
@@ -84,9 +84,7 @@ function App() {
             <span>
               Все →
             </span>
-
           </div>
-
 
           <div className="empty-card">
 
@@ -109,59 +107,26 @@ function App() {
 
       </main>
 
-
-      {/* BOTTOM NAV */}
       <nav className="bottom-nav">
 
         <div className="nav-item active">
-
-          <span>
-            ⌂
-          </span>
-
-          <small>
-            Главная
-          </small>
-
+          <span>⌂</span>
+          <small>Главная</small>
         </div>
 
-
         <div className="nav-item">
-
-          <span>
-            🚗
-          </span>
-
-          <small>
-            Каталог
-          </small>
-
+          <span>🚗</span>
+          <small>Каталог</small>
         </div>
 
-
         <div className="nav-item">
-
-          <span>
-            ♡
-          </span>
-
-          <small>
-            Избранное
-          </small>
-
+          <span>♡</span>
+          <small>Избранное</small>
         </div>
 
-
         <div className="nav-item">
-
-          <span>
-            👤
-          </span>
-
-          <small>
-            Профиль
-          </small>
-
+          <span>👤</span>
+          <small>Профиль</small>
         </div>
 
       </nav>
