@@ -1,0 +1,37 @@
+import { useEffect, useState } from 'react';
+
+function App() {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const tg = window.Telegram?.WebApp;
+
+    if (!tg) {
+      console.log('Telegram WebApp SDK не найден');
+      return;
+    }
+
+    tg.ready();
+    tg.expand();
+
+    setUser(tg.initDataUnsafe?.user || null);
+  }, []);
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h1>MICOOCAR</h1>
+
+      <p>Автомобили из Китая</p>
+
+      {user ? (
+        <p>
+          Привет, {user.first_name} 👋
+        </p>
+      ) : (
+        <p>Открыто в браузере</p>
+      )}
+    </div>
+  );
+}
+
+export default App;
