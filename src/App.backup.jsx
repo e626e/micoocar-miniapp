@@ -25,6 +25,7 @@ function App() {
       tg.expand();
       tg.setHeaderColor('#ffffff');
       tg.setBackgroundColor('#ffffff');
+
       setUser(tg.initDataUnsafe?.user || null);
     }
 
@@ -33,10 +34,10 @@ function App() {
         setCarsLoading(true);
         setCarsError('');
 
-        const response = await fetch('https://' + 'micoocar-bot.onrender.com/api/cars');
+        const response = await fetch(API_URL);
 
         if (!response.ok) {
-          throw new Error("Ошибка API: " + response.status);
+          throw new Error(`Ошибка API: ${response.status}`);
         }
 
         const data = await response.json();
@@ -46,108 +47,56 @@ function App() {
         if (!Array.isArray(data)) {
           throw new Error('API вернул данные в неправильном формате');
         }
+const preparedCars = data.map((car) => {
+  const text = typeof car.text === 'string' ? car.text : '';
 
-        const preparedCars = data.map((car) => {
-          const text = car.text || '';
+  const yearMatch = text.match(/\b20\d{2}\b/);
 
-          const yearMatch = text.match(/20\d{2}/);
+  const mileageMatch = text.match(/Пробег\s*[—-]\s*([\d\s]+)\s*км/i);
 
-          const mileageMatch = text.match(
-            /Пробег\s*[—-]\s*([\d\s]+)\s*км/i
-          );
+  const priceMatch = text.match(/([\d\s]+)\s*₽/);
 
-          const priceMatch = text.match(
-            /([\d\s]+)\s*₽/
-          );
+  const modelMatch = text.match(
+    /MINI\s+COOPER\s+COUNTRYMAN\s+1\.5/i
+  );
 
-          const vinMatch = text.match(
-            /(?:•\s*)?VIN\s*[:\-]?\s*([A-HJ-NPR-Z0-9]{17})\b/i
-          );
+  const brandMatch = text.match(
+    /MINI|BMW|Mercedes|BYD|Zeekr|Li Auto|Toyota|Honda|Volkswagen/i
+  );
 
-          const engineMatch = text.match(
-            /•?\s*([\d.,]+\s*(?:л\.?\s*)?(?:T|Т)?\s*(?:Бензин|Дизель|Гибрид|Электро|LPG|Газ))/i
-          );
+  return {
+    ...car,
 
-          const powerMatch = text.match(
-            /Мощность\s*[—-]\s*([\d\s]+)\s*л\.?\s*с\.?/i
-          );
+    brand: brandMatch?.[0] || 'Автомобиль',
 
-          const fuelMatch = text.match(
-            /\b(Бензин|Дизель|Гибрид|Электро|LPG|Газ)\b/i
-          );
+    model: modelMatch?.[0] || 'Автомобиль',
 
-          const transmissionMatch = text.match(
-            /\b(CVT|АКПП|МКПП|AT|DCT|DSG|робот|автомат|механика)\b/i
-          );
+    year: yearMatch?.[0] || '—',
 
-          const driveMatch = text.match(
-            /\b(2WD|4WD|AWD|FWD|RWD|передний привод|задний привод|полный привод)\b/i
-          );
+    mileage: mileageMatch
+      ? `${mileageMatch[1].trim()} км`
+      : '—',
 
-          const modelLine = text
-            .split("\n")
-            .map((line) => line.trim())
-            .find((line) =>
-              /^(MINI|BMW|Mercedes|Audi|BYD|Zeekr|Li Auto|Toyota|Honda|Volkswagen|Kia|Jetta)\b/i.test(line)
-            );
+    price: priceMatch
+      ? `${priceMatch[1].trim()} ₽`
+      : 'Цена по запросу',
 
-          const modelMatch = modelLine
-            ? modelLine.replace(
-                /^(MINI|BMW|Mercedes|Audi|BYD|Zeekr|Li Auto|Toyota|Honda|Volkswagen|Kia|Jetta)\s*/i,
-                ''
-              ).replace(/\s+\d+(?:[.,]\d+)?\s*[TТLл]?\s*$/i, '')
-            .trim()
-            : null;
+    engine: car.engine || '—',
 
-          const brandMatch = text.match(
-            /MINI|BMW|Mercedes|Audi|BYD|Zeekr|Li Auto|Toyota|Honda|Volkswagen|Kia|Jetta/i
-          );
+    power: car.power || '—',
+  };
+});
 
-          return {
-            ...car,
-            brand: brandMatch?.[0] || 'Автомобиль',
-            model: modelMatch || 'Автомобиль',
-            year: yearMatch?.[0] || '—',
-            mileage: mileageMatch
-              ? mileageMatch[1].trim() + " км"
-              : '—',
-            vin: vinMatch
-              ? vinMatch[1].trim().toUpperCase()
-              : '—',
-            price: priceMatch
-              ? priceMatch[1].trim() + " ₽"
-              : 'Цена по запросу',
-            engine: engineMatch
-              ? engineMatch[1].replace(/\s+/g, ' ').trim()
-              : '—',
-            power: powerMatch
-              ? powerMatch[1].trim() + ' л.с.'
-              : '—',
-            fuel: engineMatch
-              ? (engineMatch[1].match(/(Бензин|Дизель|Гибрид|Электро|LPG|Газ)/i)?.[1] || '—')
-              : '—',
-            transmission: transmissionMatch
-              ? transmissionMatch[1]
-              : '—',
-            drive: driveMatch
-              ? driveMatch[1]
-              : '—',
-            photoUrl: car.photo
-              ? `https://micoocar-bot.onrender.com/api/cars/${car.id}/photo`
-            : null,
-          };
-        });
+console.log('MICOOCAR prepared cars:', preparedCars);
 
-        console.log('MICOOCAR prepared cars:', preparedCars);
-
+setCars(preparedCars);
+       
         setCars(preparedCars);
       } catch (error) {
         console.error('Ошибка загрузки автомобилей:', error);
-
         setCarsError(
           'Не удалось загрузить автомобили. Попробуйте обновить страницу.'
         );
-
         setCars([]);
       } finally {
         setCarsLoading(false);
@@ -191,9 +140,7 @@ function App() {
       return (
         <div className="empty-card">
           <div className="empty-icon">!</div>
-
           <h3>Не удалось загрузить каталог</h3>
-
           <p>{carsError}</p>
 
           <button
@@ -210,12 +157,8 @@ function App() {
       return (
         <div className="empty-card">
           <div className="empty-icon">🚘</div>
-
           <h3>Пока нет автомобилей</h3>
-
-          <p>
-            Новые автомобили появятся здесь после публикации.
-          </p>
+          <p>Новые автомобили появятся здесь после публикации.</p>
         </div>
       );
     }
@@ -330,7 +273,7 @@ function App() {
 
             <p>
               {favoriteCars.length > 0
-                ? favoriteCars.length + " автомобиля"
+                ? `${favoriteCars.length} автомобиля`
                 : 'Сохранённые автомобили'}
             </p>
           </div>
@@ -445,16 +388,9 @@ function App() {
 
         <div className="car-detail">
           <div className="car-image-large">
-            {car.photoUrl ? (
-              <img
-                src={car.photoUrl}
-                alt={`${car.brand} ${car.model}`}
-              />
-            ) : (
-              <span>
-                {car.brand}
-              </span>
-            )}
+            <span>
+              {car.brand}
+            </span>
           </div>
 
           <div className="car-detail-header">
@@ -469,9 +405,11 @@ function App() {
             </div>
 
             <button
-              className={
-                "favorite-button " + (isFavorite(car.id) ? "favorite-active" : "")
-              }
+              className={`favorite-button ${
+                isFavorite(car.id)
+                  ? 'favorite-active'
+                  : ''
+              }`}
               onClick={() => toggleFavorite(car.id)}
             >
               {isFavorite(car.id) ? '♥' : '♡'}
@@ -494,11 +432,6 @@ function App() {
             </div>
 
             <div>
-              <span>VIN</span>
-              <strong>{car.vin}</strong>
-            </div>
-
-            <div>
               <span>Двигатель</span>
               <strong>{car.engine}</strong>
             </div>
@@ -506,21 +439,6 @@ function App() {
             <div>
               <span>Мощность</span>
               <strong>{car.power}</strong>
-            </div>
-
-            <div>
-              <span>Коробка</span>
-              <strong>{car.transmission}</strong>
-            </div>
-
-            <div>
-              <span>Топливо</span>
-              <strong>{car.fuel}</strong>
-            </div>
-
-            <div>
-              <span>Привод</span>
-              <strong>{car.drive}</strong>
             </div>
           </div>
 
@@ -532,18 +450,15 @@ function App() {
                 car.username ||
                 '@micoocarbot';
 
-              const cleanUsername = String(username)
-                .replace('@', '')
-                .trim();
-
-              const telegramUrl = "https://t.me/" + cleanUsername;
               const tg = window.Telegram?.WebApp;
 
               if (tg?.openTelegramLink) {
-                tg.openTelegramLink(telegramUrl);
+                tg.openTelegramLink(
+                  `https://t.me/${String(username).replace('@', '')}`
+                );
               } else {
                 window.open(
-                  telegramUrl,
+                  `https://t.me/${String(username).replace('@', '')}`,
                   '_blank'
                 );
               }
@@ -647,16 +562,9 @@ function CarCard({
       onClick={() => onOpen(car)}
     >
       <div className="car-image">
-        {car.photoUrl ? (
-          <img
-            src={car.photoUrl}
-            alt={`${car.brand} ${car.model}`}
-          />
-        ) : (
-          <span>
-            {car.brand}
-          </span>
-        )}
+        <span>
+          {car.brand}
+        </span>
 
         <button
           className={`favorite-button ${
@@ -693,4 +601,3 @@ function CarCard({
 }
 
 export default App;
-

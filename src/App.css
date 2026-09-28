@@ -312,7 +312,22 @@ button {
   transform: translateX(-50%) skewX(-10deg);
 }
 
-.car-image > span {
+
+.car-image img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  z-index: 1;
+}
+
+.car-image:has(img)::before,
+.car-image:has(img)::after {
+  display: none;
+}
+\n.car-image > span {
   position: relative;
   z-index: 2;
   color: rgba(255, 255, 255, 0.8);
@@ -463,7 +478,22 @@ button {
   transform: translateX(-50%) skewX(-10deg);
 }
 
-.car-image-large span {
+
+.car-image-large img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  z-index: 1;
+}
+
+.car-image-large:has(img)::before,
+.car-image-large:has(img)::after {
+  display: none;
+}
+\n.car-image-large span {
   position: relative;
   z-index: 2;
   color: rgba(255, 255, 255, 0.8);
