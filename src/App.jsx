@@ -526,30 +526,46 @@ function App() {
 
           <button
             className="main-button detail-button"
-            onClick={() => {
-              const username =
-                car.contact ||
-                car.username ||
-                '@micoocarbot';
+            onClick={async () => {
+              try {
+                const tg = window.Telegram?.WebApp;
+                const tgUser = tg?.initDataUnsafe?.user || user;
 
-              const cleanUsername = String(username)
-                .replace('@', '')
-                .trim();
-
-              const telegramUrl = "https://t.me/" + cleanUsername;
-              const tg = window.Telegram?.WebApp;
-
-              if (tg?.openTelegramLink) {
-                tg.openTelegramLink(telegramUrl);
-              } else {
-                window.open(
-                  telegramUrl,
-                  '_blank'
+                const response = await fetch(
+                  'https://micoocar-bot.onrender.com/api/leads',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      carId: car.id,
+                      brand: car.brand,
+                      model: car.model,
+                      price: car.price,
+                      vin: car.vin,
+                      userId: tgUser?.id || null,
+                      username: tgUser?.username || null,
+                      firstName: tgUser?.first_name || null,
+                      lastName: tgUser?.last_name || null,
+                    }),
+                  }
                 );
+
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                  throw new Error('Не удалось отправить заявку');
+                }
+
+                alert('Заявка отправлена менеджеру 🚗');
+              } catch (error) {
+                console.error('Ошибка отправки заявки:', error);
+                alert('Не удалось отправить заявку. Попробуйте ещё раз.');
               }
             }}
           >
-            Связаться с менеджером
+            Оставить заявку
           </button>
         </div>
       </section>
