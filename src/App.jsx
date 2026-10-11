@@ -5,37 +5,45 @@ const API_URL = 'https://micoocar-bot.onrender.com/api/cars';
 const PHOTO_URL = 'https://micoocar-bot.onrender.com/api/cars';
 
 function parseCar(car) {
-  const rawText = String(car?.text || "");
-  const lines = rawText
+  const rawText = String(car?.text || car?.description || "");
+  const normalized = rawText
     .replace(/\r/g, "")
-    .replace(/\*/g, "")
+    .replace(/\*/g, "");
+
+  const lines = normalized
     .split("\n")
     .map((line) => line.replace(/[`_]/g, "").replace(/\s+/g, " ").trim())
     .filter(Boolean);
 
-  const text = lines.join("\n");
+  const brandPattern =
+    /\b(Mercedes-Benz|Mercedes|Li\s+Auto|Land\s+Rover|Volkswagen|Toyota|Honda|Nissan|Mazda|Subaru|Mitsubishi|Suzuki|Lexus|Audi|BMW|MINI|BYD|Zeekr|Lixiang|Kia|Hyundai|Genesis|Porsche|Ford|Chevrolet|Chery|Geely|GWM|Haval|Tank|Hongqi|Avatr|NIO|Xiaomi|XPeng|JAC|Jetour|Voyah|Denza|Deepal|Leapmotor|Cadillac|Volvo|Skoda|Renault|Peugeot|Dongfeng|Changan|Wuling|Buick|Infiniti|Acura|Cupra|Opel|Isuzu|MG|Smart)\b/i;
 
-  const makePattern = /\b(?:Mercedes(?:-Benz)?|Li\s+Auto|Land\s+Rover|Volkswagen|Toyota|Honda|Nissan|Mazda|Subaru|Mitsubishi|Suzuki|Lexus|Audi|BMW|MINI|BYD|Zeekr|Lixiang|LiXiang|Kia|Hyundai|Genesis|Porsche|Ford|Chevrolet|Chery|Geely|GWM|Haval|Tank|Hongqi|Avatr|NIO|Xiaomi|XPeng|JAC|Jetour|Voyah|Denza|Deepal|Leapmotor|Cadillac|Volvo|Skoda|Renault|Peugeot|Dongfeng|Changan|Wuling|Buick|Infiniti|Acura|Cupra|Opel|Isuzu|MG|Smart)\b/i;
+  function extractTitle(line) {
+    const match = line.match(brandPattern);
+    if (!match) return "";
 
-  const ignored = /^(?:🚗\s*)?(?:НОВЫЙ\s+АВТОМОБИЛЬ|ОСНОВНЫЕ\s+ХАРАКТЕРИСТИКИ|ХАРАКТЕРИСТИКИ|VIN\b|ПРОБЕГ\b|МОЩНОСТЬ\b|💰|ЦЕНА\b|СТОИМОСТЬ\b|📸|📝|🆔|СТАТУС\b|[-—–_]{3,}|━{3,})/i;
+    return line
+      .slice(match.index)
+      .split(/\b(?:VIN|Основные характеристики|Пробег|Мощность|Цена|Стоимость|Двигатель|Коробка|Трансмиссия|Привод)\b|(?:19|20)\d{2}\s*год/i)[0]
+      .replace(/[|•💰📸📝🆔━]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
 
-  const saleIndex = lines.findIndex((line) => /в продаже/i.test(line));
-  const remainder = saleIndex >= 0
-    ? lines[saleIndex]
-        .replace(/^.*?в продаже/i, "")
-        .replace(/^[!！❗️:\s-]+/, "")
-        .trim()
-    : "";
+  const saleMatch = normalized.match(/в продаже/i);
+  let candidate = "";
 
-  const nameLines = saleIndex >= 0
-    ? [remainder, ...lines.slice(saleIndex + 1)].filter(Boolean)
-    : lines;
+  if (saleMatch) {
+    const afterSale = normalized.slice(saleMatch.index + saleMatch[0].length);
+    candidate = extractTitle(afterSale.split("\n")[0]);
+  }
 
-  const candidate = nameLines.find((line) =>
-    makePattern.test(line) &&
-    !ignored.test(line) &&
-    !/^(?:VIN|Пробег|Мощность|Цена|Стоимость|Год|Двигатель)\b/i.test(line)
-  ) || "";
+  if (!candidate) {
+    for (const line of lines) {
+      candidate = extractTitle(line);
+      if (candidate) break;
+    }
+  }
 
   const isGeneric = (value) =>
     !value ||
@@ -43,16 +51,14 @@ function parseCar(car) {
       String(value).trim()
     );
 
-  const oldTitle = String(car?.title || "").trim();
+  const oldTitle = isGeneric(car?.title) ? "" : String(car.title).trim();
   const oldBrand = isGeneric(car?.brand) ? "" : String(car.brand).trim();
   const oldModel = isGeneric(car?.model) ? "" : String(car.model).trim();
 
-  let title = candidate ||
-    (!isGeneric(oldTitle) ? oldTitle : "") ||
-    (oldBrand && oldModel ? `${oldBrand} ${oldModel}` : "");
+  let title = candidate || oldTitle || [oldBrand, oldModel].filter(Boolean).join(" ");
 
   const brandMatch = title.match(
-    /^(Mercedes-Benz|Mercedes|Li\s+Auto|Land\s+Rover|Volkswagen|Toyota|Honda|Nissan|Mazda|Subaru|Mitsubishi|Suzuki|Lexus|Audi|BMW|MINI|BYD|Zeekr|Lixiang|Kia|Hyundai|Genesis|Porsche|Ford|Chevrolet|Chery|Geely|GWM|Haval|Tank|Hongqi|Avatr|NIO|Xiaomi|XPeng|JAC|Jetour|Voyah|Denza|Deepal|Leapmotor|Cadillac|Volvo|Skoda|Renault|Peugeot|Dongfeng|Changan|Wuling|Buick|Infiniti|Acura|Cupra|Opel|Isuzu|MG|Smart)(?:\s+|$)(.*)$/i
+    /^(Mercedes-Benz|Mercedes|Li\s+Auto|Land\s+Rover|Volkswagen|Toyota|Honda|Nissan|Mazda|Subaru|Mitsubishi|Suzuki|Lexus|Audi|BMW|MINI|BYD|Zeekr|Lixiang|Kia|Hyundai|Genesis|Porsche|Ford|Chevrolet|Chery|Geely|GWM|Haval|Tank|Hongqi|Avatr|NIO|Xiaomi|XPeng|JAC|Jetour|Voyah|Denza|Deepal|Leapmotor|Cadillac|Volvo|Skoda|Renault|Peugeot|Dongfeng|Changan|Wuling|Buick|Infiniti|Acura|Cupra|Opel|Isuzu|MG|Smart)\s+(.+)$/i
   );
 
   const canonical = (value) => {
@@ -75,18 +81,16 @@ function parseCar(car) {
     return names[key] || value;
   };
 
-  const brand = brandMatch ? canonical(brandMatch[0].trim()) : oldBrand;
-  const model = brandMatch
-    ? brandMatch[1].trim()
-    : oldModel;
+  const brand = brandMatch ? canonical(brandMatch[1]) : oldBrand;
+  const model = brandMatch ? brandMatch[2].trim() : oldModel;
 
-  if (!title && brand && model) {
+  if (brand && model) {
     title = `${brand} ${model}`;
   }
 
-  const year = text.match(/\b((?:19|20)\d{2})\s*год/i)?.[1] || car.year || "";
+  const year = normalized.match(/\b((?:19|20)\d{2})\s*год/i)?.[1] || car.year || "";
 
-  const mileageMatch = text.match(
+  const mileageMatch = normalized.match(
     /Пробег\s*[—:–-]?\s*([\d\s.,]+)\s*км/i
   );
   const mileage = mileageMatch
@@ -94,38 +98,51 @@ function parseCar(car) {
     : car.mileage || "";
 
   const priceMatch =
-    text.match(/💰\s*([^\n]+)/i) ||
-    text.match(/Цена\s*[—:–-]\s*([^\n]+)/i);
-  const price = priceMatch
-    ? priceMatch[1].trim()
-    : car.price || "";
+    normalized.match(/💰\s*([^\n]+)/i) ||
+    normalized.match(/Цена\s*[—:–-]?\s*([^\n]+)/i);
+  const price = priceMatch ? priceMatch[1].trim() : car.price || "";
 
-  const vin = text.match(/\bVIN\s*[:—-]?\s*([A-Z0-9-]{5,})/i)?.[1]
-    || car.vin
-    || "";
+  const vin =
+    normalized.match(/\bVIN\s*[:—-]?\s*([A-Z0-9-]{5,})/i)?.[1] ||
+    car.vin ||
+    "";
 
-  const engine = text.match(
-    /(?:двигатель|объём|объем)\s*[—:–-]\s*([^\n]+)/i
-  )?.[1]?.trim()
-    || text.match(/(\d+(?:[.,]\d+)?\s*[TТлL]?)\s*(?:Бензин|Дизель|Гибрид|Электро)/i)?.[1]
-    || car.engine
-    || "";
+  const engine =
+    normalized.match(/(?:двигатель|объём|объем)\s*[—:–-]\s*([^\n]+)/i)?.[1]?.trim() ||
+    normalized.match(/(\d+(?:[.,]\d+)?\s*[TТлL]?)\s*(?:Бензин|Дизель|Гибрид|Электро)/i)?.[1] ||
+    car.engine ||
+    "";
 
-  const power = text.match(
-    /Мощность\s*[—:–-]\s*([^\n]+)/i
-  )?.[1]?.trim() || car.power || "";
+  const power =
+    normalized.match(/Мощность\s*[—:–-]\s*([^\n]+)/i)?.[1]?.trim() ||
+    car.power ||
+    "";
 
-  const fuel = text.match(
-    /\b(Бензин|Дизель|Гибрид|Электро)\b/i
-  )?.[1] || car.fuel || "";
+  const fuel =
+    normalized.match(/\b(Бензин|Дизель|Гибрид|Электро)\b/i)?.[1] ||
+    car.fuel ||
+    "";
 
-  const transmission = text.match(
-    /(?:КПП|Коробка|Трансмиссия)\s*[—:–-]\s*([^\n]+)/i
-  )?.[1]?.trim() || car.transmission || "";
+  const transmission =
+    normalized.match(/(?:КПП|Коробка|Трансмиссия)\s*[—:–-]\s*([^\n]+)/i)?.[1]?.trim() ||
+    car.transmission ||
+    "";
 
-  const drive = text.match(
-    /Привод\s*[—:–-]\s*([^\n]+)/i
-  )?.[1]?.trim() || car.drive || "";
+  const drive =
+    normalized.match(/Привод\s*[—:–-]\s*([^\n]+)/i)?.[1]?.trim() ||
+    car.drive ||
+    "";
+
+  const photos = Array.isArray(car.photos) && car.photos.length
+    ? car.photos.map((photo) => {
+        const value = String(photo);
+        return /^https?:\/\//i.test(value)
+          ? value
+          : new URL(value, API_URL).toString();
+      })
+    : car.photo
+      ? [`${PHOTO_URL}/${car.id}/photo`]
+      : [];
 
   return {
     ...car,
@@ -141,7 +158,8 @@ function parseCar(car) {
     fuel,
     transmission,
     drive,
-    photoUrl: car.photo ? `${PHOTO_URL}/${car.id}/photo` : ""
+    photos,
+    photoUrl: photos[0] || "",
   };
 }
 function formatPrice(price) {
@@ -217,7 +235,7 @@ function App() {
       setLoading(true);
       setError('');
 
-      const response = await fetch(API_URL);
+      const response = await fetch(API_URL, { cache: "no-store" });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -1208,6 +1226,30 @@ function CarDetail({
   onLead,
   sendingLead,
 }) {
+  const galleryPhotos =
+    Array.isArray(car.photos) && car.photos.length
+      ? car.photos
+      : car.photoUrl
+        ? [car.photoUrl]
+        : [];
+
+  const [activePhoto, setActivePhoto] = useState(0);
+
+  const descriptionText = String(car.description || car.text || "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .filter((line) =>
+      !/^\s*━{3,}\s*$/.test(line) &&
+      !/^\s*🚗\s*НОВЫЙ\s+АВТОМОБИЛЬ\s*$/i.test(line)
+    )
+    .join("\n")
+    .trim();
+
+
+  useEffect(() => {
+    setActivePhoto(0);
+  }, [car.id]);
+
   return (
     <div className="page car-detail-page">
       <button
@@ -1219,24 +1261,73 @@ function CarDetail({
       </button>
 
       <section className="detail-image">
-        {car.photoUrl ? (
-          <img
-            src={car.photoUrl}
-            alt={`${car.brand} ${car.model}`}
-          />
-        ) : (
-          <div className="image-placeholder large">
-            <span>MICOOR CAR</span>
+        <div className="detail-gallery-stage">
+          {galleryPhotos.length > 0 ? (
+            <img
+              className="detail-gallery-main"
+              src={galleryPhotos[activePhoto] || galleryPhotos[0]}
+              alt={`${car.brand || ''} ${car.model || car.title || ''} — фото ${activePhoto + 1}`}
+            />
+          ) : (
+            <div className="image-placeholder large">
+              <span>MICOOR CAR</span>
+            </div>
+          )}
+
+          <div className="detail-image-gradient" />
+
+          <span className="detail-image-label">
+            MICOOR CAR / SELECTED
+          </span>
+
+          {galleryPhotos.length > 1 && (
+            <>
+              <button
+                className="detail-gallery-arrow detail-gallery-prev"
+                type="button"
+                aria-label="Предыдущее фото"
+                onClick={() => setActivePhoto(
+                  (current) => (current - 1 + galleryPhotos.length) % galleryPhotos.length
+                )}
+              >
+                ‹
+              </button>
+
+              <button
+                className="detail-gallery-arrow detail-gallery-next"
+                type="button"
+                aria-label="Следующее фото"
+                onClick={() => setActivePhoto(
+                  (current) => (current + 1) % galleryPhotos.length
+                )}
+              >
+                ›
+              </button>
+
+              <span className="detail-gallery-counter">
+                {activePhoto + 1} / {galleryPhotos.length}
+              </span>
+            </>
+          )}
+        </div>
+
+        {galleryPhotos.length > 1 && (
+          <div className="detail-gallery-thumbnails">
+            {galleryPhotos.map((photo, index) => (
+              <button
+                key={`${car.id}-photo-${index}`}
+                className={`detail-gallery-thumb ${activePhoto === index ? 'is-active' : ''}`}
+                type="button"
+                aria-label={`Открыть фото ${index + 1}`}
+                aria-pressed={activePhoto === index}
+                onClick={() => setActivePhoto(index)}
+              >
+                <img src={photo} alt="" loading="lazy" />
+              </button>
+            ))}
           </div>
         )}
-
-        <div className="detail-image-gradient" />
-
-        <span className="detail-image-label">
-          MICOOR CAR / SELECTED
-        </span>
       </section>
-
       <section className="detail-head">
         <div>
           <span className="detail-brand">
@@ -1294,6 +1385,19 @@ function CarDetail({
         <section className="vin-block">
           <span>VIN</span>
           <strong>{car.vin}</strong>
+        </section>
+      )}
+
+      {descriptionText && (
+        <section className="description-section">
+          <div className="description-heading">
+            <span className="section-eyebrow">MICOOR CAR / DETAILS</span>
+            <h2>Об автомобиле</h2>
+          </div>
+
+          <div className="description-copy">
+            {descriptionText}
+          </div>
         </section>
       )}
 
