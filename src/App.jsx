@@ -168,6 +168,10 @@ function App() {
   const [error, setError] = useState('');
   const [user, setUser] = useState(null);
   const [sendingLead, setSendingLead] = useState(false);
+  const [showLeadModal, setShowLeadModal] = useState(false);
+  const [leadPhone, setLeadPhone] = useState('');
+  const [leadError, setLeadError] = useState('');
+
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -284,11 +288,26 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  async function sendLead(car) {
-    if (sendingLead) return;
+  function openLeadModal() {
+    setLeadPhone('');
+    setLeadError('');
+    setShowLeadModal(true);
+  }
+
+  async function sendLead(car, phone) {
+    if (sendingLead || !car) return;
+
+    const normalizedPhone = String(phone || '').trim();
+    const digits = normalizedPhone.replace(/\D/g, '');
+
+    if (digits.length < 7 || digits.length > 15) {
+      setLeadError('Введите корректный номер телефона с кодом страны.');
+      return;
+    }
 
     try {
       setSendingLead(true);
+      setLeadError('');
 
       const tg = window.Telegram?.WebApp;
       const tgUser = tg?.initDataUnsafe?.user || user;
@@ -297,15 +316,14 @@ function App() {
         'https://micoocar-bot.onrender.com/api/leads',
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             carId: car.id,
             brand: car.brand,
             model: car.model,
             price: car.price,
             vin: car.vin,
+            phone: normalizedPhone,
             userId: tgUser?.id || null,
             username: tgUser?.username || null,
             firstName: tgUser?.first_name || null,
@@ -314,32 +332,26 @@ function App() {
         }
       );
 
-      const data = await response.json();
-
+      const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) {
-        throw new Error('Не удалось отправить заявку');
+        throw new Error(data.error || 'Не удалось отправить заявку');
       }
+
+      setShowLeadModal(false);
+      setLeadPhone('');
 
       if (tg?.showPopup) {
         tg.showPopup({
           title: 'Заявка отправлена',
-          message:
-            'Менеджер получил информацию об автомобиле и свяжется с вами.',
+          message: 'Менеджер получил ваши контакты и информацию об автомобиле.',
           buttons: [{ type: 'ok' }],
         });
       } else {
-        alert('Заявка отправлена менеджеру 🚗');
+        alert('Заявка отправлена менеджеру');
       }
-    } catch (err) {
-      console.error(err);
-
-      if (window.Telegram?.WebApp?.showAlert) {
-        window.Telegram.WebApp.showAlert(
-          'Не удалось отправить заявку. Попробуйте ещё раз.'
-        );
-      } else {
-        alert('Не удалось отправить заявку. Попробуйте ещё раз.');
-      }
+    } catch (error) {
+      console.error('Ошибка отправки заявки:', error);
+      setLeadError('Не удалось отправить заявку. Попробуйте ещё раз.');
     } finally {
       setSendingLead(false);
     }
@@ -415,12 +427,89 @@ function App() {
             isFavorite={favorites.includes(selectedCar.id)}
             onFavorite={() => toggleFavorite(selectedCar.id)}
             onBack={goCatalog}
-            onLead={() => sendLead(selectedCar)}
+            onLead={openLeadModal}
             sendingLead={sendingLead}
           />
         )}
       </main>
+      {showLeadModal && selectedCar && (
+        <div
+          className="lead-modal-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !sendingLead) {
+              setShowLeadModal(false);
+            }
+          }}
+        >
+          <section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-modal-title">
+            <div className="lead-modal-top">
+              <span className="section-eyebrow">MICOOR CAR / ЗАЯВКА</span>
+              <button
+                className="lead-modal-close"
+                type="button"
+                aria-label="Закрыть"
+                disabled={sendingLead}
+                onClick={() => setShowLeadModal(false)}
+              >×</button>
+            </div>
 
+            <h2 id="lead-modal-title">Связаться с менеджером</h2>
+            <p className="lead-modal-description">
+              Оставьте номер телефона, чтобы менеджер мог связаться с вами.
+            </p>
+
+            <div className="lead-car-summary">
+              <span>Выбранный автомобиль</span>
+              <strong>{[selectedCar.brand, selectedCar.model].filter(Boolean).join(' ') || selectedCar.title || 'Автомобиль'}</strong>
+              {selectedCar.price && <span>{selectedCar.price}</span>}
+            </div>
+
+            <form
+              className="lead-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                sendLead(selectedCar, leadPhone);
+              }}
+            >
+              <label htmlFor="lead-phone">Номер телефона *</label>
+              <input
+                id="lead-phone"
+                name="phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="+7 999 123-45-67"
+                value={leadPhone}
+                onChange={(event) => setLeadPhone(event.target.value)}
+                required
+                disabled={sendingLead}
+              />
+
+              <div className="lead-telegram-data">
+                <div>
+                  <span>Имя из Telegram</span>
+                  <strong>{[user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Не доступно'}</strong>
+                </div>
+                <div>
+                  <span>Telegram username</span>
+                  <strong>{user?.username ? `@${user.username}` : 'Не указан'}</strong>
+                </div>
+              </div>
+
+              <p className="lead-privacy-note">
+                Контакты будут переданы менеджеру для обработки заявки.
+              </p>
+
+              {leadError && <p className="lead-form-error" role="alert">{leadError}</p>}
+
+              <button className="lead-submit-button" type="submit" disabled={sendingLead}>
+                {sendingLead ? 'Отправляем…' : 'Отправить заявку'}
+                {!sendingLead && <span>↗</span>}
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
       {page !== 'car' && (
         <nav className="bottom-nav">
           <NavButton
