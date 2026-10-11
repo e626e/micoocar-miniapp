@@ -5,95 +5,127 @@ const API_URL = 'https://micoocar-bot.onrender.com/api/cars';
 const PHOTO_URL = 'https://micoocar-bot.onrender.com/api/cars';
 
 function parseCar(car) {
-  const text = car?.text || '';
+  const rawText = String(car?.text || "");
+  const lines = rawText
+    .replace(/\r/g, "")
+    .replace(/\*/g, "")
+    .split("\n")
+    .map((line) => line.replace(/[`_]/g, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
 
-  const find = (patterns) => {
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match?.[1]) return match[1].trim();
-    }
-    return '';
-  };
+  const text = lines.join("\n");
 
-  const year =
-    find([/•\s*(?:19|20)\d{2}\s*год/i, /(\d{4})\s*год/i]) ||
-    car.year ||
-    '';
+  const makePattern = /\b(?:Mercedes(?:-Benz)?|Li\s+Auto|Land\s+Rover|Volkswagen|Toyota|Honda|Nissan|Mazda|Subaru|Mitsubishi|Suzuki|Lexus|Audi|BMW|MINI|BYD|Zeekr|Lixiang|LiXiang|Kia|Hyundai|Genesis|Porsche|Ford|Chevrolet|Chery|Geely|GWM|Haval|Tank|Hongqi|Avatr|NIO|Xiaomi|XPeng|JAC|Jetour|Voyah|Denza|Deepal|Leapmotor|Cadillac|Volvo|Skoda|Renault|Peugeot|Dongfeng|Changan|Wuling|Buick|Infiniti|Acura|Cupra|Opel|Isuzu|MG|Smart)\b/i;
 
-  const mileage =
-    find([
-      /Пробег\s*[—:-]\s*([^\n]+)/i,
-      /Пробег\s*([0-9\s]+)\s*км/i,
-    ]) ||
-    car.mileage ||
-    '';
+  const ignored = /^(?:🚗\s*)?(?:НОВЫЙ\s+АВТОМОБИЛЬ|ОСНОВНЫЕ\s+ХАРАКТЕРИСТИКИ|ХАРАКТЕРИСТИКИ|VIN\b|ПРОБЕГ\b|МОЩНОСТЬ\b|💰|ЦЕНА\b|СТОИМОСТЬ\b|📸|📝|🆔|СТАТУС\b|[-—–_]{3,}|━{3,})/i;
 
-  const price =
-    find([
-      /💰\s*([^\n]+)/i,
-      /Цена\s*[—:-]\s*([^\n]+)/i,
-    ]) ||
-    car.price ||
-    '';
+  const saleIndex = lines.findIndex((line) => /в продаже/i.test(line));
+  const remainder = saleIndex >= 0
+    ? lines[saleIndex]
+        .replace(/^.*?в продаже/i, "")
+        .replace(/^[!！❗️:\s-]+/, "")
+        .trim()
+    : "";
 
-  const vin =
-    find([/VIN\s*([A-Za-z0-9-]+)/i]) ||
-    car.vin ||
-    '';
+  const nameLines = saleIndex >= 0
+    ? [remainder, ...lines.slice(saleIndex + 1)].filter(Boolean)
+    : lines;
 
-  const engine =
-    find([
-      /(?:двигатель|объём|объем)\s*[—:-]\s*([^\n]+)/i,
-      /•\s*([0-9.,]+[A-Za-zА-Яа-яЁё]*)\s*(?:Бензин|Дизель|Гибрид|Электро)/i,
-    ]) ||
-    car.engine ||
-    '';
+  const candidate = nameLines.find((line) =>
+    makePattern.test(line) &&
+    !ignored.test(line) &&
+    !/^(?:VIN|Пробег|Мощность|Цена|Стоимость|Год|Двигатель)\b/i.test(line)
+  ) || "";
 
-  const power =
-    find([/Мощность\s*[—:-]\s*([^\n]+)/i]) ||
-    car.power ||
-    '';
-
-  const fuel =
-    find([
-      /([0-9.,]+\s*(?:Т|T|л|L)?)\s*(Бензин|Дизель|Гибрид|Электро)/i,
-    ]) ||
-    car.fuel ||
-    '';
-
-  const transmission =
-    find([
-      /(?:КПП|Коробка|Трансмиссия)\s*[—:-]\s*([^\n]+)/i,
-    ]) ||
-    car.transmission ||
-    '';
-
-  const drive =
-    find([/(?:Привод)\s*[—:-]\s*([^\n]+)/i]) ||
-    car.drive ||
-    '';
-
-  let title = car.title || '';
-  let brand = car.brand || '';
-  let model = car.model || '';
-
-  if (!brand || !model) {
-    const titleMatch = text.match(
-      /(?:В продаже|В ПРОДАЖЕ)[!:\s]*\n+([A-ZА-ЯЁ][^\n]+)/i
+  const isGeneric = (value) =>
+    !value ||
+    /^(?:автомобиль|новый автомобиль|текст автомобиля отсутствует)$/i.test(
+      String(value).trim()
     );
 
-    if (titleMatch?.[1]) {
-      title = titleMatch[1].replace(/\s+/g, ' ').trim();
+  const oldTitle = String(car?.title || "").trim();
+  const oldBrand = isGeneric(car?.brand) ? "" : String(car.brand).trim();
+  const oldModel = isGeneric(car?.model) ? "" : String(car.model).trim();
 
-      const parts = title.split(' ');
-      brand = brand || parts.shift() || '';
-      model = model || parts.join(' ');
-    }
+  let title = candidate ||
+    (!isGeneric(oldTitle) ? oldTitle : "") ||
+    (oldBrand && oldModel ? `${oldBrand} ${oldModel}` : "");
+
+  const brandMatch = title.match(
+    /^(Mercedes-Benz|Mercedes|Li\s+Auto|Land\s+Rover|Volkswagen|Toyota|Honda|Nissan|Mazda|Subaru|Mitsubishi|Suzuki|Lexus|Audi|BMW|MINI|BYD|Zeekr|Lixiang|Kia|Hyundai|Genesis|Porsche|Ford|Chevrolet|Chery|Geely|GWM|Haval|Tank|Hongqi|Avatr|NIO|Xiaomi|XPeng|JAC|Jetour|Voyah|Denza|Deepal|Leapmotor|Cadillac|Volvo|Skoda|Renault|Peugeot|Dongfeng|Changan|Wuling|Buick|Infiniti|Acura|Cupra|Opel|Isuzu|MG|Smart)(?:\s+|$)(.*)$/i
+  );
+
+  const canonical = (value) => {
+    const key = value.toLowerCase().replace(/\s+/g, " ").trim();
+    const names = {
+      "mini": "MINI",
+      "bmw": "BMW",
+      "byd": "BYD",
+      "mg": "MG",
+      "nio": "NIO",
+      "xpeng": "XPeng",
+      "gwm": "GWM",
+      "mercedes": "Mercedes-Benz",
+      "mercedes-benz": "Mercedes-Benz",
+      "li auto": "Li Auto",
+      "land rover": "Land Rover",
+      "volkswagen": "Volkswagen",
+      "zeekr": "Zeekr"
+    };
+    return names[key] || value;
+  };
+
+  const brand = brandMatch ? canonical(brandMatch[0].trim()) : oldBrand;
+  const model = brandMatch
+    ? brandMatch[1].trim()
+    : oldModel;
+
+  if (!title && brand && model) {
+    title = `${brand} ${model}`;
   }
 
-  if (!title) {
-    title = [brand, model].filter(Boolean).join(' ');
-  }
+  const year = text.match(/\b((?:19|20)\d{2})\s*год/i)?.[1] || car.year || "";
+
+  const mileageMatch = text.match(
+    /Пробег\s*[—:–-]?\s*([\d\s.,]+)\s*км/i
+  );
+  const mileage = mileageMatch
+    ? `${mileageMatch[1].trim().replace(/\s+/g, " ")} км`
+    : car.mileage || "";
+
+  const priceMatch =
+    text.match(/💰\s*([^\n]+)/i) ||
+    text.match(/Цена\s*[—:–-]\s*([^\n]+)/i);
+  const price = priceMatch
+    ? priceMatch[1].trim()
+    : car.price || "";
+
+  const vin = text.match(/\bVIN\s*[:—-]?\s*([A-Z0-9-]{5,})/i)?.[1]
+    || car.vin
+    || "";
+
+  const engine = text.match(
+    /(?:двигатель|объём|объем)\s*[—:–-]\s*([^\n]+)/i
+  )?.[1]?.trim()
+    || text.match(/(\d+(?:[.,]\d+)?\s*[TТлL]?)\s*(?:Бензин|Дизель|Гибрид|Электро)/i)?.[1]
+    || car.engine
+    || "";
+
+  const power = text.match(
+    /Мощность\s*[—:–-]\s*([^\n]+)/i
+  )?.[1]?.trim() || car.power || "";
+
+  const fuel = text.match(
+    /\b(Бензин|Дизель|Гибрид|Электро)\b/i
+  )?.[1] || car.fuel || "";
+
+  const transmission = text.match(
+    /(?:КПП|Коробка|Трансмиссия)\s*[—:–-]\s*([^\n]+)/i
+  )?.[1]?.trim() || car.transmission || "";
+
+  const drive = text.match(
+    /Привод\s*[—:–-]\s*([^\n]+)/i
+  )?.[1]?.trim() || car.drive || "";
 
   return {
     ...car,
@@ -109,12 +141,9 @@ function parseCar(car) {
     fuel,
     transmission,
     drive,
-    photoUrl: car.photo
-      ? `${PHOTO_URL}/${car.id}/photo`
-      : '',
+    photoUrl: car.photo ? `${PHOTO_URL}/${car.id}/photo` : ""
   };
 }
-
 function formatPrice(price) {
   if (!price) return 'Цена по запросу';
 
@@ -192,13 +221,35 @@ function App() {
 
       const data = await response.json();
 
-      const publishedCars = Array.isArray(data)
+      const parsedCars = Array.isArray(data)
         ? data
-            .filter((car) => car.status === 'published')
+            .filter((car) => car.status === "published")
+            .filter((car) => {
+              const source = String(car?.text || "").trim();
+              return source &&
+                !/Текст автомобиля отсутствует/i.test(source) &&
+                !/📝\s*Текст:\s*нет/i.test(source);
+            })
             .map(parseCar)
+            .filter((car) =>
+              car.title &&
+              !/^(?:автомобиль|новый автомобиль)$/i.test(car.title.trim())
+            )
         : [];
 
-      setCars(publishedCars);
+      const seen = new Set();
+      const uniqueCars = parsedCars.filter((car) => {
+        const vin = String(car.vin || "").replace(/\s+/g, "").toUpperCase();
+        const fingerprint = vin
+          ? `vin:${vin}`
+          : `text:${String(car.text || "").replace(/\s+/g, " ").trim().toLowerCase()}`;
+
+        if (seen.has(fingerprint)) return false;
+        seen.add(fingerprint);
+        return true;
+      });
+
+      setCars(uniqueCars);
     } catch (err) {
       console.error(err);
       setError('Не удалось загрузить каталог');
