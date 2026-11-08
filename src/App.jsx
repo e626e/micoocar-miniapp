@@ -355,7 +355,9 @@ function App() {
   const [page, setPage] = useState(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('page');
     const fromTelegram = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
-    return fromUrl === 'wish' || fromTelegram === 'wish' ? 'wish' : 'home';
+    if (fromUrl === 'wish' || fromTelegram === 'wish') return 'wish';
+    if (fromUrl === 'calc' || fromTelegram === 'calc') return 'calc';
+    return 'home';
   });
   const [returnPage, setReturnPage] = useState('catalog');
   const [cars, setCars] = useState([]);
@@ -368,6 +370,9 @@ function App() {
   const [busyId, setBusyId] = useState(null);
   const [leadCar, setLeadCar] = useState(null);
   const [adminStats, setAdminStats] = useState(null);
+  const [stories, setStories] = useState(null);
+  const [calcPreset, setCalcPreset] = useState(null);
+  const deepLinkDone = useRef(false);
   const [catalogSearch, setCatalogSearch] = useState({ query: '', filters: EMPTY_FILTERS, sort: 'new' });
   const [toast, setToast] = useState(null);
   const [minSplash, setMinSplash] = useState(true);
@@ -474,6 +479,34 @@ function App() {
   );
 
   const selectedCar = cars.find((car) => car.id === selectedId) || null;
+
+  // Ссылка из уведомления бота: ?car=<id> открывает карточку
+  useEffect(() => {
+    if (deepLinkDone.current || loading || !cars.length) return;
+    deepLinkDone.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const fromTelegram = getTelegram()?.initDataUnsafe?.start_param || '';
+    const carId = params.get('car') || (fromTelegram.startsWith('car_') ? fromTelegram : '');
+    const car = carId && cars.find((item) => item.id === carId);
+    if (car) {
+      setReturnPage('catalog');
+      setSelectedId(car.id);
+      setPage('car');
+    }
+  }, [loading, cars]);
+
+  function openCalc(car) {
+    const preset = car
+      ? {
+          age: Number(car.year) && new Date().getFullYear() - Number(car.year) >= 5 ? '5+' : Number(car.year) && new Date().getFullYear() - Number(car.year) >= 3 ? '3-5' : 'new',
+          volume: car.engine ? String(Math.round(parseFloat(String(car.engine).replace(',', '.')) * 1000) || '') : '',
+          power: String(String(car.power || '').match(/\d+/)?.[0] || ''),
+          fuel: /дизел/i.test(car.fuel || '') ? 'diesel' : /гибрид/i.test(car.fuel || '') ? 'hybrid' : /электр/i.test(car.fuel || '') ? 'electric' : 'petrol',
+        }
+      : null;
+    setCalcPreset(preset);
+    navigate('calc');
+  }
 
   function showToast(text, tone = 'default') {
     clearTimeout(toastTimer.current);
@@ -631,6 +664,8 @@ function App() {
             onCar={openCar}
             soldCars={archivedCars}
             onSold={() => navigate('archive')}
+            onStories={(index) => { haptic('light'); setStories(index); }}
+            onCalc={() => openCalc(null)}
           />
         )}
 
@@ -646,6 +681,8 @@ function App() {
             onRetry={loadCars}
             onArchive={() => navigate('archive')}
             onWish={() => navigate('wish')}
+            initData={initData}
+            onToast={showToast}
             adminStats={adminStats}
             search={catalogSearch}
             onSearch={setCatalogSearch}
@@ -663,6 +700,10 @@ function App() {
           />
         )}
 
+        {page === 'calc' && (
+          <CustomsPage key={JSON.stringify(calcPreset)} preset={calcPreset} onWish={() => navigate('wish')} />
+        )}
+
         {page === 'favorites' && (
           <FavoritesPage
             cars={favoriteCars}
@@ -670,6 +711,7 @@ function App() {
             onCar={openCar}
             onFavorite={toggleFavorite}
             onCatalog={() => navigate('catalog')}
+            initData={initData}
           />
         )}
 
@@ -683,6 +725,7 @@ function App() {
             isFavorite={favorites.includes(selectedCar.id)}
             onFavorite={() => toggleFavorite(selectedCar.id)}
             onLead={() => setLeadCar(selectedCar)}
+            onCalc={openCalc}
             {...adminProps}
           />
         )}
@@ -701,6 +744,18 @@ function App() {
             <NavButton active={page === 'archive'} icon={<IconFlag />} label="Продано" badge={isAdmin ? archivedCars.length : 0} onClick={() => navigate('archive')} />
           )}
         </nav>
+      )}
+
+      {stories !== null && (
+        <StoriesViewer
+          cars={publishedCars}
+          start={stories}
+          favorites={favorites}
+          onFavorite={toggleFavorite}
+          onClose={() => setStories(null)}
+          onDetails={(car) => { setStories(null); openCar(car); }}
+          onLead={(car) => { setStories(null); setLeadCar(car); }}
+        />
       )}
 
       {leadCar && (
@@ -1122,6 +1177,8 @@ const IconPen = () => <Icon size={18}><path d="M4 20h4L19 9l-4-4L4 16z" /><path 
 const IconSliders = () => <Icon size={18}><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></Icon>;
 const IconEye = () => <Icon size={14}><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.8" /></Icon>;
 const IconFlag = () => <Icon size={16}><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></Icon>;
+const IconBell = () => <Icon size={22}><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8" /><path d="M10 20a2 2 0 0 0 4 0" /></Icon>;
+const IconCalc = () => <Icon><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="M8.5 7h7M8.5 11h1M12 11h1M15.5 11h0M8.5 14.5h1M12 14.5h1M8.5 18h1M12 18h1M15.5 14.5V18" /></Icon>;
 const IconTrash = () => <Icon size={16}><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13" /></Icon>;
 
 /* =========================================================
@@ -1169,7 +1226,7 @@ const INCLUDED = [
   'все сопутствующие расходы',
 ];
 
-function HomePage({ cars, loading, favorites, onFavorite, onCatalog, onWish, onCar, soldCars = [], onSold }) {
+function HomePage({ cars, loading, favorites, onFavorite, onCatalog, onWish, onCar, soldCars = [], onSold, onStories, onCalc }) {
   const latest = cars.slice(0, 8);
   const [openFaq, setOpenFaq] = useState(0);
   const [allFaq, setAllFaq] = useState(false);
@@ -1179,6 +1236,8 @@ function HomePage({ cars, loading, favorites, onFavorite, onCatalog, onWish, onC
 
   return (
     <div className="page home">
+      {!loading && <StoriesRow cars={cars} onOpen={onStories} />}
+
       <section className="hero">
         <div className="hero-glow" aria-hidden="true" />
         <div className="hero-grid" aria-hidden="true" />
@@ -1296,6 +1355,17 @@ function HomePage({ cars, loading, favorites, onFavorite, onCatalog, onWish, onC
         </ul>
 
         <p className="muted">Цена в карточке указана до Уссурийска — со всеми расходами.</p>
+      </section>
+
+      <section className="section reveal">
+        <button className="calc-promo" onClick={onCalc} type="button">
+          <span className="calc-promo-icon"><IconCalc /></span>
+          <span>
+            <strong>Калькулятор растаможки</strong>
+            <em>Единая ставка, сбор и утильсбор по курсу ЦБ</em>
+          </span>
+          <span aria-hidden="true">→</span>
+        </button>
       </section>
 
       <section className="section reveal">
@@ -2019,6 +2089,8 @@ function CatalogPage({
   onRetry,
   onArchive,
   onWish,
+  initData,
+  onToast,
   adminStats,
   search,
   onSearch,
@@ -2028,6 +2100,7 @@ function CatalogPage({
 }) {
   const { query, filters, sort } = search;
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [subscribeOpen, setSubscribeOpen] = useState(false);
 
   const brands = useMemo(() => {
     const counts = new Map();
@@ -2121,6 +2194,12 @@ function CatalogPage({
           </div>
         )}
 
+        {chips.length > 0 && (
+          <button className="subscribe-button" onClick={() => setSubscribeOpen(true)} type="button">
+            <IconBell /> Сообщить о новых по этому поиску
+          </button>
+        )}
+
         <div className="results-row">
           <span>{loading ? '' : `Найдено: ${visible.length}`}</span>
           <label className="sort-select">
@@ -2151,6 +2230,9 @@ function CatalogPage({
           <h2>{cars.length ? 'Под эти параметры авто пока нет' : 'Пока пусто'}</h2>
           <p>{cars.length ? 'Оставьте анкету — подберём такую машину на рынке Китая.' : 'Новые автомобили появятся здесь совсем скоро.'}</p>
           {cars.length > 0 && <button className="btn btn-primary" onClick={onWish} type="button">Заполнить анкету</button>}
+          {cars.length > 0 && chips.length > 0 && (
+            <button className="btn btn-ghost" onClick={() => setSubscribeOpen(true)} type="button">Сообщить, когда появится</button>
+          )}
         </div>
       )}
 
@@ -2171,6 +2253,19 @@ function CatalogPage({
         </div>
       )}
 
+      {subscribeOpen && (
+        <SubscribeSheet
+          filters={filters}
+          chips={chips}
+          initData={initData}
+          onClose={() => setSubscribeOpen(false)}
+          onDone={(data) => {
+            setSubscribeOpen(false);
+            onToast(data.matching ? `Подписка оформлена · уже подходит: ${data.matching}` : 'Подписка оформлена — бот напишет о новых авто', 'success');
+          }}
+        />
+      )}
+
       {sheetOpen && (
         <FilterSheet
           cars={cars}
@@ -2187,7 +2282,436 @@ function CatalogPage({
   );
 }
 
-function FavoritesPage({ cars, favorites, onCar, onFavorite, onCatalog }) {
+/* =========================================================
+   УМНЫЕ МЕТКИ
+   ========================================================= */
+
+function carLabels(car) {
+  const price = priceNumber(car.price);
+  const oldPrice = Number(car.oldPrice) || 0;
+  const published = Date.parse(car.publishedAt || car.createdAt || '') || 0;
+  const sold = car.status === 'hidden';
+
+  return {
+    isNew: !sold && published && Date.now() - published < 3 * 86400e3,
+    drop: !sold && oldPrice && price && price < oldPrice ? oldPrice - price : 0,
+    oldPrice,
+    hot: !sold && (Number(car.viewsToday) || 0) >= 3 ? Number(car.viewsToday) : 0,
+  };
+}
+
+/* =========================================================
+   ПОДПИСКА НА ПОИСК
+   ========================================================= */
+
+function SubscribeSheet({ filters, chips, initData, onClose, onDone }) {
+  const [priceDrops, setPriceDrops] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  async function subscribe() {
+    if (sending) return;
+
+    if (!initData) {
+      setError('Подписка работает, когда каталог открыт через Telegram-бота @micoocarbot.');
+      return;
+    }
+
+    try {
+      setSending(true);
+      setError('');
+
+      const response = await fetch(`${API_BASE}/api/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
+        body: JSON.stringify({ filters, priceDrops, label: chips.map((chip) => chip.label).join(' · ') }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось оформить подписку');
+
+      haptic('success');
+      onDone(data);
+    } catch (err) {
+      setError(err.message);
+      haptic('error');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={(event) => event.target === event.currentTarget && !sending && onClose()}>
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="sub-title">
+        <div className="modal-handle" />
+
+        <div className="sub-head">
+          <span className="sub-icon"><IconBell /></span>
+          <div>
+            <h2 id="sub-title">Сообщить о новых</h2>
+            <p className="muted">Бот напишет в Telegram, как только появится подходящее авто</p>
+          </div>
+        </div>
+
+        <span className="filter-label">Ваш поиск</span>
+        <div className="active-filters sub-chips">
+          {chips.length ? chips.map((chip) => (
+            <span key={chip.label} className="active-chip">{chip.label}</span>
+          )) : <span className="active-chip">Все автомобили</span>}
+        </div>
+
+        <label className="switch-row">
+          <span>Также сообщать о снижении цены</span>
+          <input type="checkbox" checked={priceDrops} onChange={(event) => setPriceDrops(event.target.checked)} />
+          <i aria-hidden="true" />
+        </label>
+
+        {error && <p className="form-error" role="alert">{error}</p>}
+
+        <button className="btn btn-primary sub-submit" onClick={subscribe} type="button" disabled={sending}>
+          {sending ? <span className="spinner" /> : 'Подписаться на поиск'}
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function MySubscriptions({ initData }) {
+  const [items, setItems] = useState(null);
+
+  useEffect(() => {
+    if (!initData) return;
+    fetch(`${API_BASE}/api/subscriptions`, { headers: { 'X-Telegram-Init-Data': initData } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setItems(data?.items || []))
+      .catch(() => setItems([]));
+  }, [initData]);
+
+  async function remove(id) {
+    haptic('medium');
+    setItems((current) => current.filter((item) => item.id !== id));
+    await fetch(`${API_BASE}/api/subscriptions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'X-Telegram-Init-Data': initData },
+    }).catch(() => {});
+  }
+
+  if (!initData || !items || !items.length) return null;
+
+  return (
+    <section className="section my-subs">
+      <span className="eyebrow">Уведомления</span>
+      <h2>Мои подписки</h2>
+      {items.map((item) => (
+        <div className="sub-row" key={item.id}>
+          <span className="sub-icon small"><IconBell /></span>
+          <div>
+            <strong>{item.label || 'Все автомобили'}</strong>
+            <span>{item.priceDrops ? 'Новые авто и снижение цены' : 'Только новые авто'}</span>
+          </div>
+          <button className="sub-remove" onClick={() => remove(item.id)} type="button" aria-label="Удалить подписку">×</button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/* =========================================================
+   СТОРИС-ЛЕНТА
+   ========================================================= */
+
+function StoriesRow({ cars, onOpen }) {
+  if (!cars.length) return null;
+
+  return (
+    <div className="stories-row" aria-label="Сторис">
+      {cars.slice(0, 12).map((car, index) => (
+        <button key={car.id} className="story-bubble" onClick={() => onOpen(index)} type="button">
+          <span className="story-ring">
+            <CarImage src={car.photoUrl} alt="" />
+          </span>
+          <em>{car.brand || 'Авто'}</em>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StoriesViewer({ cars, start, favorites, onFavorite, onClose, onDetails, onLead }) {
+  const feedRef = useRef(null);
+  const [index, setIndex] = useState(start);
+  const [photo, setPhoto] = useState(0);
+
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (feed) feed.scrollTop = start * feed.clientHeight;
+
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function onScroll() {
+    const feed = feedRef.current;
+    if (!feed) return;
+    const next = Math.round(feed.scrollTop / feed.clientHeight);
+    if (next !== index) {
+      setIndex(next);
+      setPhoto(0);
+      haptic('selection');
+    }
+  }
+
+  function tapPhoto(event, car) {
+    const photos = car.photos?.length ? car.photos : [car.photoUrl];
+    const rect = event.currentTarget.getBoundingClientRect();
+    const forward = event.clientX - rect.left > rect.width * 0.35;
+    setPhoto((value) => Math.max(0, Math.min(photos.length - 1, value + (forward ? 1 : -1))));
+  }
+
+  return (
+    <div className="stories" role="dialog" aria-modal="true" aria-label="Сторис автомобилей">
+      <div className="stories-progress" aria-hidden="true">
+        {cars.map((car, carIndex) => (
+          <span key={car.id} className={carIndex < index ? 'done' : carIndex === index ? 'active' : ''} />
+        ))}
+      </div>
+
+      <div className="stories-top">
+        <span className="stories-count">{index + 1} из {cars.length}</span>
+        <button className="viewer-close" onClick={onClose} type="button" aria-label="Закрыть">×</button>
+      </div>
+
+      <div className="stories-feed" ref={feedRef} onScroll={onScroll}>
+        {cars.map((car, carIndex) => {
+          const photos = car.photos?.length ? car.photos : [car.photoUrl];
+          const shown = carIndex === index ? photos[Math.min(photo, photos.length - 1)] : photos[0];
+          const labels = carLabels(car);
+          const specs = [car.year, car.mileage, car.engine || car.fuel, car.power].filter(Boolean);
+          const isFavorite = favorites.includes(car.id);
+
+          return (
+            <section className="story" key={car.id}>
+              <div className="story-photo" onClick={(event) => tapPhoto(event, car)}>
+                {Math.abs(carIndex - index) <= 1 ? <CarImage src={shown} alt={carName(car)} eager={carIndex === index} /> : null}
+              </div>
+
+              {carIndex === index && photos.length > 1 && (
+                <div className="story-photos" aria-hidden="true">
+                  {photos.map((item, photoIndex) => <span key={item} className={photoIndex === photo ? 'active' : ''} />)}
+                </div>
+              )}
+
+              <div className="story-info">
+                <div className="story-badges">
+                  {labels.isNew && <span className="label label-new">Новинка</span>}
+                  {labels.drop > 0 && <span className="label label-drop">Цена снижена</span>}
+                </div>
+                <span className="story-brand">{car.brand}</span>
+                <h2>{car.model || car.title}</h2>
+                <div className="story-specs">
+                  {specs.map((spec) => <span key={spec}>{spec}</span>)}
+                </div>
+                <div className="story-price">
+                  {formatPrice(car.price)} <em>под ключ</em>
+                </div>
+
+                <div className="story-actions">
+                  <button
+                    className={`story-fav ${isFavorite ? 'is-favorite' : ''}`}
+                    onClick={() => onFavorite(car.id)}
+                    type="button"
+                    aria-label={isFavorite ? 'Убрать из избранного' : 'В избранное'}
+                  >
+                    <IconHeart filled={isFavorite} />
+                  </button>
+                  <button className="btn story-more" onClick={() => onDetails(car)} type="button">Подробнее</button>
+                  <button className="btn story-want" onClick={() => onLead(car)} type="button">Хочу это авто</button>
+                </div>
+
+                {carIndex < cars.length - 1 && (
+                  <div className="story-hint" aria-hidden="true">Свайп вверх — следующее авто</div>
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   КАЛЬКУЛЯТОР РАСТАМОЖКИ
+   ========================================================= */
+
+const CURRENCIES = [['CNY', '¥ юань'], ['USD', '$ доллар'], ['EUR', '€ евро'], ['RUB', '₽ рубль']];
+const AGES = [['new', 'До 3 лет'], ['3-5', '3–5 лет'], ['5+', 'Старше 5']];
+const ENGINE_TYPES = [['petrol', 'Бензин'], ['diesel', 'Дизель'], ['hybrid', 'Гибрид'], ['electric', 'Электро']];
+
+function rub(value) {
+  return `${Math.round(Number(value) || 0).toLocaleString('ru-RU')} ₽`;
+}
+
+function CustomsPage({ preset, onWish }) {
+  const [form, setForm] = useState(() => ({
+    price: '',
+    currency: 'CNY',
+    age: 'new',
+    volume: '',
+    power: '',
+    fuel: 'petrol',
+    ...(preset || {}),
+  }));
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (patch) => setForm((value) => ({ ...value, ...patch }));
+
+  useEffect(() => {
+    const ready = form.fuel === 'electric' || (Number(form.price) && Number(form.volume) && Number(form.power));
+    if (!ready) {
+      setResult(null);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const query = new URLSearchParams(form).toString();
+        const response = await fetch(`${API_BASE}/api/customs?${query}`, { signal: controller.signal });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Расчёт временно недоступен');
+        setResult(data);
+      } catch (err) {
+        if (err.name !== 'AbortError') setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }, 450);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [form]);
+
+  return (
+    <div className="page calc">
+      <section className="page-head">
+        <span className="eyebrow">Для физических лиц</span>
+        <h1>Калькулятор растаможки</h1>
+        <p className="muted">Единая ставка, таможенный сбор и утильсбор для авто из Китая по курсу ЦБ на сегодня.</p>
+      </section>
+
+      <div className="calc-card">
+        <div className="filter-group">
+          <span className="filter-label">Стоимость авто в Китае</span>
+          <label className="range-input wide">
+            <input
+              inputMode="numeric"
+              placeholder="Например, 200 000"
+              value={formatThousands(form.price)}
+              onChange={(event) => set({ price: digitsOnly(event.target.value) })}
+            />
+          </label>
+          <div className="filter-chips">
+            {CURRENCIES.map(([value, label]) => (
+              <button key={value} type="button" className={`chip ${form.currency === value ? 'active' : ''}`} onClick={() => set({ currency: value })}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="filter-group">
+          <span className="filter-label">Возраст автомобиля</span>
+          <div className="segmented">
+            {AGES.map(([value, label]) => (
+              <button key={value} type="button" className={form.age === value ? 'active' : ''} onClick={() => set({ age: value })}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="filter-group">
+          <span className="filter-label">Двигатель</span>
+          <div className="filter-chips">
+            {ENGINE_TYPES.map(([value, label]) => (
+              <button key={value} type="button" className={`chip ${form.fuel === value ? 'active' : ''}`} onClick={() => set({ fuel: value })}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        {form.fuel !== 'electric' && (
+          <div className="range-row">
+            <label className="range-input">
+              <input inputMode="numeric" placeholder="Объём" value={form.volume} onChange={(event) => set({ volume: digitsOnly(event.target.value) })} />
+              <span>см³</span>
+            </label>
+            <label className="range-input">
+              <input inputMode="numeric" placeholder="Мощность" value={form.power} onChange={(event) => set({ power: digitsOnly(event.target.value) })} />
+              <span>л.с.</span>
+            </label>
+          </div>
+        )}
+      </div>
+
+      <section className={`calc-result ${loading ? 'is-loading' : ''}`} aria-live="polite">
+        {!result && !error && (
+          <p className="muted">Заполните стоимость, объём и мощность — расчёт появится здесь.</p>
+        )}
+
+        {error && <p className="form-error">{error}</p>}
+
+        {result && !result.supported && <p className="muted">{result.reason}</p>}
+
+        {result?.supported && (
+          <>
+            <div className="calc-total">
+              <span>Таможенные платежи</span>
+              <strong>{rub(result.total)}</strong>
+            </div>
+
+            <div className="calc-lines">
+              <div><span>Таможенная стоимость</span><b>{rub(result.customsValueRub)}</b></div>
+              <div><span>Единая ставка <em>{result.dutyRule}</em></span><b>{rub(result.duty)}</b></div>
+              <div><span>Таможенный сбор</span><b>{rub(result.fee)}</b></div>
+              <div><span>Утильсбор <em>{result.utilPreferential ? 'льготный' : 'по таблице мощности'}</em></span><b>{rub(result.util)}</b></div>
+            </div>
+
+            {!result.utilPreferential && (
+              <p className="calc-warn">Мощность больше 160 л.с. или объём больше 3 л — утильсбор считается по повышенной таблице.</p>
+            )}
+
+            {result.hybridNote && (
+              <p className="calc-warn">Для гибридов итог зависит от типа установки — менеджер уточнит расчёт.</p>
+            )}
+          </>
+        )}
+
+        {result?.rates && (
+          <p className="calc-rates">
+            Курс ЦБ на {new Date(result.rates.date || Date.now()).toLocaleDateString('ru-RU')}: € {result.rates.EUR.toFixed(2)} · ¥ {result.rates.CNY.toFixed(2)} · $ {result.rates.USD.toFixed(2)}
+          </p>
+        )}
+      </section>
+
+      <p className="calc-note">
+        Расчёт для личного пользования по ставкам единой таможенной пошлины, таможенного сбора и утильсбора, сверенным с tks.ru. Доставка и услуги в сумму не входят — итог под ключ посчитает менеджер.
+      </p>
+
+      <button className="btn btn-primary wish-wide" onClick={onWish} type="button">
+        Получить расчёт под ключ
+      </button>
+    </div>
+  );
+}
+
+function FavoritesPage({ cars, favorites, onCar, onFavorite, onCatalog, initData }) {
   return (
     <div className="page">
       <section className="page-head">
@@ -2216,6 +2740,8 @@ function FavoritesPage({ cars, favorites, onCar, onFavorite, onCatalog }) {
           ))}
         </div>
       )}
+
+      <MySubscriptions initData={initData} />
     </div>
   );
 }
@@ -2333,6 +2859,7 @@ function CarCard({
   onAdmin,
 }) {
   const specs = [car.mileage, car.engine || car.fuel, car.power].filter(Boolean).slice(0, 3);
+  const labels = carLabels(car);
 
   return (
     <article className={`car-card ${compact ? 'compact' : ''} ${archived ? 'archived' : ''} ${busy ? 'is-busy' : ''}`}>
@@ -2343,6 +2870,8 @@ function CarCard({
           {archived && <span className="sold-stamp">Продано</span>}
 
           <div className="media-badges">
+            {labels.isNew && <span className="label label-new">Новинка</span>}
+            {labels.drop > 0 && <span className="label label-drop">Цена снижена</span>}
             {car.year && <span className="badge">{car.year}</span>}
             {car.photos?.length > 1 && (
               <span className="badge"><IconCamera /> {car.photos.length}</span>
@@ -2353,6 +2882,10 @@ function CarCard({
               </span>
             )}
           </div>
+
+          {!isAdmin && labels.hot > 0 && (
+            <div className="views-badge">Смотрели сегодня: {labels.hot}</div>
+          )}
 
           {isAdmin && car.stats && (
             <div className="views-badge">
@@ -2373,7 +2906,11 @@ function CarCard({
           )}
 
           <div className="car-card-footer">
-            <span className="car-price">{formatPrice(car.price)}</span>
+            <span className="car-price-wrap">
+              {labels.drop > 0 && <s className="old-price">{rub(labels.oldPrice)}</s>}
+              <span className={`car-price ${labels.drop > 0 ? 'is-drop' : ''}`}>{formatPrice(car.price)}</span>
+            </span>
+            {labels.drop > 0 && <span className="drop-chip">−{rub(labels.drop)}</span>}
             <span className="car-more" aria-hidden="true">→</span>
           </div>
         </div>
@@ -2405,7 +2942,7 @@ function CarCard({
    CAR DETAIL
    ========================================================= */
 
-function CarDetail({ car, isFavorite, onFavorite, onLead, isAdmin, busyId, onAdmin }) {
+function CarDetail({ car, isFavorite, onFavorite, onLead, onCalc, isAdmin, busyId, onAdmin }) {
   const photos = Array.isArray(car.photos) && car.photos.length
     ? car.photos
     : car.photoUrl
@@ -2541,6 +3078,11 @@ function CarDetail({ car, isFavorite, onFavorite, onLead, isAdmin, busyId, onAdm
 
       <section className="price-card">
         <span className="price-label">{archived ? 'Продан за — цена' : 'Цена'} {deliveredTo}</span>
+        {carLabels(car).drop > 0 && (
+          <span className="price-old">
+            <s>{rub(carLabels(car).oldPrice)}</s> <em>−{rub(carLabels(car).drop)}</em>
+          </span>
+        )}
         <strong className="price-value">{formatPrice(car.price)}</strong>
 
         {includes.length > 0 && (
@@ -2551,6 +3093,12 @@ function CarDetail({ car, isFavorite, onFavorite, onLead, isAdmin, busyId, onAdm
           </ul>
         )}
       </section>
+
+      {!archived && (
+        <button className="calc-link" onClick={() => onCalc(car)} type="button">
+          <IconCalc /> Как считается растаможка для такого авто →
+        </button>
+      )}
 
       {isAdmin && (
         <section className="admin-panel">
