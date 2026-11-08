@@ -316,6 +316,15 @@ function readFavorites() {
   }
 }
 
+function readRecent() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('micoocar_recent') || '[]');
+    return Array.isArray(saved) ? saved.slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
+
 function prepareCars(data) {
   if (!Array.isArray(data)) return [];
 
@@ -357,7 +366,7 @@ function App() {
     const fromTelegram = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
     if (fromUrl === 'wish' || fromTelegram === 'wish') return 'wish';
     if (fromUrl === 'calc' || fromTelegram === 'calc') return 'calc';
-    const direct = ['archive', 'favorites', 'catalog'].find(name => fromUrl === name || fromTelegram === name);
+    const direct = ['archive', 'favorites', 'catalog', 'profile', 'deals'].find(name => fromUrl === name || fromTelegram === name);
     if (direct) return direct;
     return 'home';
   });
@@ -377,6 +386,9 @@ function App() {
   const deepLinkDone = useRef(false);
   const [catalogSearch, setCatalogSearch] = useState({ query: '', filters: EMPTY_FILTERS, sort: 'new' });
   const [toast, setToast] = useState(null);
+  const [profileData, setProfileData] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [recentIds, setRecentIds] = useState(readRecent);
   const [minSplash, setMinSplash] = useState(true);
   const [slowLoad, setSlowLoad] = useState(false);
   const toastTimer = useRef(null);
@@ -516,6 +528,23 @@ function App() {
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }
 
+  const loadProfile = useCallback(() => {
+    if (!initData) return;
+    fetch(`${API_BASE}/api/profile`, { headers: { 'X-Telegram-Init-Data': initData } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => { if (data?.success) setProfileData(data); })
+      .catch(() => {});
+  }, [initData]);
+
+  useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/reviews`, { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data) => setReviews(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
+
   function navigate(nextPage) {
     haptic('light');
     setPage(nextPage);
@@ -543,6 +572,11 @@ function App() {
   function openCar(car) {
     haptic('light');
     trackView(car);
+    setRecentIds((current) => {
+      const next = [car.id, ...current.filter((id) => id !== car.id)].slice(0, 8);
+      try { localStorage.setItem('micoocar_recent', JSON.stringify(next)); } catch { /* без хранилища — только в памяти */ }
+      return next;
+    });
     setReturnPage(page === 'car' ? returnPage : page);
     setSelectedId(car.id);
     setPage('car');
@@ -668,6 +702,7 @@ function App() {
             onSold={() => navigate('archive')}
             onStories={(index) => { haptic('light'); setStories(index); }}
             onCalc={() => openCalc(null)}
+            reviews={reviews}
           />
         )}
 
@@ -696,6 +731,8 @@ function App() {
           <WishPage
             cars={publishedCars}
             user={user}
+            defaultPhone={profileData?.profile?.phone || ''}
+            onSent={loadProfile}
             onCar={openCar}
             onCatalog={() => navigate('catalog')}
             onExit={() => navigate('home')}
@@ -715,6 +752,29 @@ function App() {
             onCatalog={() => navigate('catalog')}
             initData={initData}
           />
+        )}
+
+        {page === 'profile' && (
+          <ProfilePage
+            user={user}
+            initData={initData}
+            data={profileData}
+            onSaved={(profile) => setProfileData((current) => ({ ...(current || { requests: [], subscriptions: [] }), profile }))}
+            onReload={loadProfile}
+            favoritesCount={favoriteCars.length}
+            recentCars={recentIds.map((id) => cars.find((car) => car.id === id)).filter(Boolean).slice(0, 6)}
+            onCar={openCar}
+            onFavorites={() => navigate('favorites')}
+            onCatalog={() => navigate('catalog')}
+            onWish={() => navigate('wish')}
+            onToast={showToast}
+            isAdmin={isAdmin}
+            onDeals={() => navigate('deals')}
+          />
+        )}
+
+        {page === 'deals' && (
+          <DealsPage isAdmin={isAdmin} initData={initData} cars={publishedCars} onToast={showToast} />
         )}
 
         {page === 'archive' && (
@@ -745,6 +805,7 @@ function App() {
           {(isAdmin || archivedCars.length > 0) && (
             <NavButton active={page === 'archive'} icon={<IconFlag />} label="Продано" badge={isAdmin ? archivedCars.length : 0} onClick={() => navigate('archive')} />
           )}
+          <NavButton active={page === 'profile'} icon={<IconUser />} label="Профиль" onClick={() => navigate('profile')} />
         </nav>
       )}
 
@@ -764,9 +825,11 @@ function App() {
         <LeadModal
           car={leadCar}
           user={user}
+          defaultPhone={profileData?.profile?.phone || ''}
           onClose={() => setLeadCar(null)}
           onSent={() => {
             setLeadCar(null);
+            loadProfile();
             haptic('success');
             showToast('Заявка отправлена — менеджер скоро свяжется', 'success');
           }}
@@ -1179,6 +1242,7 @@ const IconPen = () => <Icon size={18}><path d="M4 20h4L19 9l-4-4L4 16z" /><path 
 const IconSliders = () => <Icon size={18}><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></Icon>;
 const IconEye = () => <Icon size={14}><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.8" /></Icon>;
 const IconFlag = () => <Icon size={16}><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></Icon>;
+const IconUser = ({ size }) => <Icon size={size}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></Icon>;
 const IconBell = () => <Icon size={22}><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8" /><path d="M10 20a2 2 0 0 0 4 0" /></Icon>;
 const IconCalc = () => <Icon><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="M8.5 7h7M8.5 11h1M12 11h1M15.5 11h0M8.5 14.5h1M12 14.5h1M8.5 18h1M12 18h1M15.5 14.5V18" /></Icon>;
 const IconTrash = () => <Icon size={16}><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13" /></Icon>;
@@ -1229,7 +1293,7 @@ const INCLUDED = [
   'все сопутствующие расходы',
 ];
 
-function HomePage({ cars, loading, favorites, onFavorite, onCatalog, onWish, onCar, soldCars = [], onSold, onStories, onCalc }) {
+function HomePage({ cars, loading, favorites, onFavorite, onCatalog, onWish, onCar, soldCars = [], onSold, onStories, onCalc, reviews = [] }) {
   const latest = cars.slice(0, 8);
   const [openFaq, setOpenFaq] = useState(0);
   const [allFaq, setAllFaq] = useState(false);
@@ -1327,6 +1391,30 @@ function HomePage({ cars, loading, favorites, onFavorite, onCatalog, onWish, onC
           <div className="rail">
             {soldCars.slice(0, 8).map((car) => (
               <CarCard key={car.id} car={car} compact archived onClick={() => onCar(car)} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {reviews.length > 0 && (
+        <section className="section reveal">
+          <div className="section-head">
+            <div>
+              <span className="eyebrow">Отзывы</span>
+              <h2>Клиенты с ключами</h2>
+            </div>
+          </div>
+          <div className="rail reviews-rail">
+            {reviews.slice(0, 12).map((review) => (
+              <article className="review-card" key={review.id}>
+                {review.photos[0] && <img src={`${API_BASE}${review.photos[0]}`} alt={`${review.name} и ${review.carTitle}`} loading="lazy" />}
+                <div className="review-body">
+                  <span className="review-stars" aria-label={`Оценка ${review.rating} из 5`}>{'★'.repeat(review.rating)}<em>{'★'.repeat(5 - review.rating)}</em></span>
+                  <p>{review.text}</p>
+                  <strong>{review.name}</strong>
+                  <span>{review.carTitle}</span>
+                </div>
+              </article>
             ))}
           </div>
         </section>
@@ -1480,11 +1568,11 @@ function matchCars(cars, answers) {
   });
 }
 
-function WishPage({ cars, user, onCar, onCatalog, onExit }) {
+function WishPage({ cars, user, defaultPhone = '', onSent, onCar, onCatalog, onExit }) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState({});
   const [customs, setCustoms] = useState({});
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(defaultPhone);
   const [comment, setComment] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -1582,7 +1670,7 @@ function WishPage({ cars, user, onCar, onCatalog, onExit }) {
 
       let response = await fetch(`${API_BASE}/api/wishes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': getTelegram()?.initData || '' },
         body: JSON.stringify({
           ...client,
           answers: fullAnswers,
@@ -1620,6 +1708,7 @@ function WishPage({ cars, user, onCar, onCatalog, onExit }) {
 
       haptic('success');
       setDone(true);
+      onSent?.();
     } catch (err) {
       console.error('Ошибка отправки анкеты:', err);
       setError('Не удалось отправить анкету. Проверьте интернет и попробуйте ещё раз.');
@@ -2714,6 +2803,637 @@ function CustomsPage({ preset, onWish }) {
   );
 }
 
+/* =========================================================
+   ПРОФИЛЬ КЛИЕНТА
+   ========================================================= */
+
+const REQUEST_STATUS_LABEL = {
+  new: { text: 'Отправлена', tone: 'new' },
+  work: { text: 'В работе', tone: 'work' },
+  done: { text: 'Завершена', tone: 'done' },
+};
+
+function formatShortDate(value) {
+  try {
+    return new Date(value).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  } catch {
+    return '';
+  }
+}
+
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+function monthGenitive(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${MONTHS_GEN[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getDate()} ${MONTHS_GEN[date.getMonth()]}, ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function DealTimeline({ deal, stages }) {
+  const currentIndex = Math.max(0, stages.findIndex((stage) => stage.id === deal.stage));
+  return (
+    <ol className="deal-timeline">
+      {stages.map((stage, index) => (
+        <li key={stage.id} className={index < currentIndex ? 'done' : index === currentIndex ? 'current' : ''}>
+          <span className="deal-dot">{index < currentIndex ? '✓' : index + 1}</span>
+          <span>{stage.title}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function DealHistory({ deal, stages, limit = 4 }) {
+  const titles = Object.fromEntries(stages.map((stage) => [stage.id, stage.title]));
+  const items = [...(deal.history || [])].reverse().filter((item) => item.note || item.stage).slice(0, limit);
+  if (!items.length) return null;
+  return (
+    <ul className="deal-history">
+      {items.map((item, index) => (
+        <li key={`${item.at}-${index}`}>
+          <time>{formatDateTime(item.at)}</time>
+          {item.stage && <strong>{titles[item.stage] || item.stage}</strong>}
+          {item.note && <p>{item.note}</p>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function DealTracker({ deal, stages, initData, onReload, onToast }) {
+  const arrived = deal.stage === 'arrived';
+  return (
+    <section className={`deal-card ${arrived ? 'arrived' : ''}`}>
+      <span className="eyebrow">{arrived ? 'Авто приехал' : 'Ваш автомобиль в пути'}</span>
+      <h2>{deal.title}</h2>
+      <DealTimeline deal={deal} stages={stages} />
+      <DealHistory deal={deal} stages={stages} />
+      {arrived && !deal.reviewStatus && (
+        <ReviewForm deal={deal} initData={initData} onDone={() => { onReload(); onToast('Спасибо за отзыв!', 'success'); }} />
+      )}
+      {deal.reviewStatus && (
+        <p className="deal-thanks">⭐ Спасибо за отзыв! {deal.reviewStatus === 'published' ? 'Он уже на главной.' : 'Опубликуем после проверки.'}</p>
+      )}
+    </section>
+  );
+}
+
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(image.width * scale);
+      canvas.height = Math.round(image.height * scale);
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.82));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('bad image'));
+    };
+    image.src = url;
+  });
+}
+
+function ReviewForm({ deal, initData, onDone }) {
+  const [rating, setRating] = useState(5);
+  const [text, setText] = useState('');
+  const [photos, setPhotos] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  async function addPhotos(event) {
+    const files = [...(event.target.files || [])].slice(0, 3 - photos.length);
+    event.target.value = '';
+    try {
+      const prepared = await Promise.all(files.map(compressImage));
+      setPhotos((current) => [...current, ...prepared].slice(0, 3));
+      setError('');
+    } catch {
+      setError('Не получилось открыть фото. Попробуйте другое.');
+    }
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    if (sending) return;
+    if (text.trim().length < 3) {
+      setError('Напишите пару слов о покупке');
+      haptic('error');
+      return;
+    }
+    try {
+      setSending(true);
+      setError('');
+      const response = await fetch(`${API_BASE}/api/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
+        body: JSON.stringify({ dealId: deal.id, rating, text: text.trim(), photos }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось отправить отзыв');
+      haptic('success');
+      onDone();
+    } catch (err) {
+      setError(err.message || 'Не удалось отправить отзыв. Попробуйте ещё раз.');
+      haptic('error');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <form className="review-form" onSubmit={submit} noValidate>
+      <strong>Поздравляем с покупкой! Оставьте отзыв и фото с автомобилем</strong>
+      <div className="star-input" role="radiogroup" aria-label="Оценка">
+        {[1, 2, 3, 4, 5].map((value) => (
+          <button key={value} type="button" role="radio" aria-checked={rating === value} aria-label={`${value} из 5`}
+            className={value <= rating ? 'on' : ''} onClick={() => { haptic('light'); setRating(value); }}>★</button>
+        ))}
+      </div>
+      <textarea placeholder="Как прошла покупка и доставка? Довольны автомобилем?" value={text}
+        onChange={(event) => { setText(event.target.value); setError(''); }} maxLength={1500} disabled={sending} />
+      <div className="review-photos">
+        {photos.map((photo, index) => (
+          <span className="review-thumb" key={index}>
+            <img src={photo} alt="" />
+            <button type="button" aria-label="Убрать фото" onClick={() => setPhotos((current) => current.filter((_, i) => i !== index))}>×</button>
+          </span>
+        ))}
+        {photos.length < 3 && (
+          <label className="review-add">
+            <input type="file" accept="image/*" multiple onChange={addPhotos} disabled={sending} />
+            <span>📸</span>
+            <em>{photos.length ? 'Ещё фото' : 'Фото с авто'}</em>
+          </label>
+        )}
+      </div>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <button className="btn btn-primary" type="submit" disabled={sending}>
+        {sending ? <span className="spinner" /> : 'Отправить отзыв'}
+      </button>
+    </form>
+  );
+}
+
+/* =========================================================
+   СДЕЛКИ — ДЛЯ АДМИНА
+   ========================================================= */
+
+function DealsPage({ isAdmin, initData, cars, onToast }) {
+  const [data, setData] = useState(null);
+  const [openId, setOpenId] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  const load = useCallback(() => {
+    if (!initData) return;
+    fetch(`${API_BASE}/api/admin/deals`, { headers: { 'X-Telegram-Init-Data': initData } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((result) => setData(result?.success ? result : { deals: [], clients: [], stages: [] }))
+      .catch(() => setData({ deals: [], clients: [], stages: [] }));
+  }, [initData]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (!isAdmin) {
+    return <EmptyState title="Раздел для администратора" text="Здесь менеджеры ведут покупки клиентов." />;
+  }
+
+  const active = (data?.deals || []).filter((deal) => deal.stage !== 'arrived');
+  const finished = (data?.deals || []).filter((deal) => deal.stage === 'arrived');
+
+  return (
+    <div className="page deals-page">
+      <section className="page-head">
+        <span className="eyebrow">Администратор</span>
+        <h1>Сделки</h1>
+        <p className="muted">Отметьте покупку клиента и ведите авто по этапам — клиент получает каждое обновление в боте и видит его в профиле.</p>
+      </section>
+
+      {creating ? (
+        <NewDealForm data={data} cars={cars} initData={initData} onCancel={() => setCreating(false)}
+          onCreated={() => { setCreating(false); load(); onToast('Покупка оформлена, клиент получил уведомление', 'success'); }} />
+      ) : (
+        <button className="btn btn-primary deals-new" type="button" onClick={() => { haptic('light'); setCreating(true); }}>＋ Отметить покупку клиента</button>
+      )}
+
+      {!data && <p className="muted">Загружаем…</p>}
+
+      {data && !data.deals.length && !creating && (
+        <div className="profile-empty">
+          <p className="muted">Сделок пока нет. Отметить покупку можно здесь или кнопкой «🤝 Клиент купил» под заявкой в группе.</p>
+        </div>
+      )}
+
+      {active.length > 0 && <h2 className="deals-group">В пути · {active.length}</h2>}
+      {active.map((deal) => (
+        <AdminDealCard key={deal.id} deal={deal} stages={data.stages} initData={initData} open={openId === deal.id}
+          onToggle={() => setOpenId(openId === deal.id ? null : deal.id)} onSaved={load} onToast={onToast} />
+      ))}
+
+      {finished.length > 0 && <h2 className="deals-group">Выданы · {finished.length}</h2>}
+      {finished.map((deal) => (
+        <AdminDealCard key={deal.id} deal={deal} stages={data.stages} initData={initData} open={openId === deal.id}
+          onToggle={() => setOpenId(openId === deal.id ? null : deal.id)} onSaved={load} onToast={onToast} />
+      ))}
+    </div>
+  );
+}
+
+function AdminDealCard({ deal, stages, initData, open, onToggle, onSaved, onToast }) {
+  const [stage, setStage] = useState(deal.stage);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const current = stages.find((item) => item.id === deal.stage);
+
+  useEffect(() => { setStage(deal.stage); }, [deal.stage]);
+
+  async function save() {
+    if (saving) return;
+    if (stage === deal.stage && !note.trim()) {
+      setError('Выберите новый этап или напишите комментарий');
+      haptic('error');
+      return;
+    }
+    const goingArrived = stage === 'arrived' && deal.stage !== 'arrived';
+    if (goingArrived && !(await confirmAction('Отметить, что авто приехал? Клиент получит уведомление и просьбу оставить отзыв с фото.'))) return;
+
+    try {
+      setSaving(true);
+      setError('');
+      const response = await fetch(`${API_BASE}/api/admin/deals/${encodeURIComponent(deal.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
+        body: JSON.stringify({ stage, note: note.trim() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Не удалось сохранить');
+      setNote('');
+      haptic('success');
+      onToast(result.notified ? 'Сохранено, клиент получил уведомление' : 'Сохранено (клиент не получил сообщение — возможно, бот заблокирован)', result.notified ? 'success' : 'default');
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+      haptic('error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <article className={`admin-deal ${open ? 'open' : ''}`}>
+      <button className="admin-deal-head" type="button" onClick={onToggle} aria-expanded={open}>
+        <div>
+          <strong>{deal.title}</strong>
+          <span>{deal.client}{deal.city ? ` · ${deal.city}` : ''}</span>
+        </div>
+        <em className={`deal-stage-pill ${deal.stage}`}>{current ? `${current.emoji} ${current.title}` : deal.stage}</em>
+      </button>
+
+      {open && (
+        <div className="admin-deal-body">
+          {deal.phone && <a className="link-button" href={`tel:${deal.phone.replace(/[^\d+]/g, '')}`}>📞 {deal.phone}</a>}
+          <DealTimeline deal={deal} stages={stages} />
+
+          <label className="deal-label">Этап</label>
+          <div className="stage-picker">
+            {stages.map((item) => (
+              <button key={item.id} type="button" className={stage === item.id ? 'active' : ''} onClick={() => { haptic('light'); setStage(item.id); setError(''); }}>
+                {item.emoji} {item.title}
+              </button>
+            ))}
+          </div>
+
+          <label className="deal-label" htmlFor={`note-${deal.id}`}>Комментарий для клиента</label>
+          <textarea id={`note-${deal.id}`} placeholder="Например: прошли границу, ориентир прибытия 12 ноября" value={note}
+            onChange={(event) => { setNote(event.target.value); setError(''); }} maxLength={500} />
+
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <button className="btn btn-primary" type="button" onClick={save} disabled={saving}>
+            {saving ? <span className="spinner" /> : 'Сохранить и уведомить клиента'}
+          </button>
+
+          <h3 className="deal-label">История</h3>
+          <DealHistory deal={deal} stages={stages} limit={20} />
+          {deal.reviewStatus && <p className="muted">⭐ Отзыв: {deal.reviewStatus === 'published' ? 'опубликован' : deal.reviewStatus === 'pending' ? 'ждёт проверки в группе заявок' : 'не опубликован'}</p>}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function NewDealForm({ data, cars, initData, onCancel, onCreated }) {
+  const [userId, setUserId] = useState('');
+  const [carId, setCarId] = useState('');
+  const [title, setTitle] = useState('');
+  const [note, setNote] = useState('');
+  const [markSold, setMarkSold] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const clients = data?.clients || [];
+
+  async function submit(event) {
+    event.preventDefault();
+    if (saving) return;
+    if (!userId) return setError('Выберите клиента');
+    if (!carId && !title.trim()) return setError('Выберите авто из каталога или впишите название');
+    try {
+      setSaving(true);
+      setError('');
+      const response = await fetch(`${API_BASE}/api/admin/deals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
+        body: JSON.stringify({ userId: Number(userId), carId: carId || null, title: title.trim(), note: note.trim(), markSold }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Не удалось сохранить');
+      haptic('success');
+      onCreated();
+    } catch (err) {
+      setError(err.message);
+      haptic('error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="new-deal" onSubmit={submit} noValidate>
+      <h2>Покупка клиента</h2>
+
+      <label className="deal-label" htmlFor="nd-client">Клиент</label>
+      <select id="nd-client" value={userId} onChange={(event) => { setUserId(event.target.value); setError(''); }}>
+        <option value="">Выберите клиента</option>
+        {clients.map((client) => (
+          <option key={client.userId} value={client.userId}>{client.name}{client.last ? ` — ${client.last}` : ''}</option>
+        ))}
+      </select>
+      {!clients.length && <p className="muted">Клиенты появятся здесь после первой заявки или заполнения профиля в мини‑аппе.</p>}
+
+      <label className="deal-label" htmlFor="nd-car">Автомобиль</label>
+      <select id="nd-car" value={carId} onChange={(event) => { setCarId(event.target.value); setError(''); }}>
+        <option value="">Не из каталога — впишу вручную</option>
+        {cars.map((car) => (
+          <option key={car.id} value={car.id}>{carName(car)} · {formatPrice(car.price)}</option>
+        ))}
+      </select>
+      {!carId && (
+        <input type="text" placeholder="Например: Zeekr 001 YOU 2024, белый" value={title} onChange={(event) => { setTitle(event.target.value); setError(''); }} />
+      )}
+      {carId && (
+        <label className="switch-row">
+          <span>Перевести авто в «Продано»</span>
+          <input type="checkbox" checked={markSold} onChange={(event) => setMarkSold(event.target.checked)} />
+          <i aria-hidden="true" />
+        </label>
+      )}
+
+      <label className="deal-label" htmlFor="nd-note">Комментарий для клиента (необязательно)</label>
+      <textarea id="nd-note" placeholder="Например: оплата получена, авто выкуплен у дилера" value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} />
+
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="new-deal-actions">
+        <button className="btn btn-ghost" type="button" onClick={onCancel} disabled={saving}>Отмена</button>
+        <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? <span className="spinner" /> : 'Оформить'}</button>
+      </div>
+    </form>
+  );
+}
+
+function ProfilePage({ user, initData, data, onSaved, onReload, favoritesCount, recentCars, onCar, onFavorites, onCatalog, onWish, onToast, isAdmin, onDeals }) {
+  const profile = data?.profile;
+  const [form, setForm] = useState({ phone: '', email: '', city: '', notifications: true });
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (profile && !dirty) {
+      setForm({ phone: profile.phone, email: profile.email, city: profile.city, notifications: profile.notifications });
+    }
+  }, [profile, dirty]);
+
+  useEffect(() => { onReload?.(); }, [onReload]);
+
+  if (!initData) {
+    return (
+      <div className="page">
+        <div className="empty-state">
+          <span className="empty-icon"><IconUser size={28} /></span>
+          <h2>Профиль доступен в Telegram</h2>
+          <p>Откройте мини‑приложение через бота @micoocarbot, чтобы видеть свои заявки и подписки.</p>
+          <button className="btn btn-primary" onClick={onCatalog} type="button">Открыть каталог</button>
+        </div>
+      </div>
+    );
+  }
+
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setErrors((current) => ({ ...current, [field]: '' }));
+    setDirty(true);
+  }
+
+  async function save(event) {
+    event?.preventDefault();
+    if (saving) return;
+
+    const next = {};
+    const phoneDigits = form.phone.replace(/\D/g, '');
+    if (form.phone.trim() && (phoneDigits.length < 7 || phoneDigits.length > 15)) next.phone = 'Введите номер с кодом страны, например +7 999 123-45-67';
+    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) next.email = 'Проверьте адрес, например name@mail.ru';
+    if (Object.keys(next).length) {
+      setErrors(next);
+      haptic('error');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const response = await fetch(`${API_BASE}/api/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
+        body: JSON.stringify(form),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        if (result.field) setErrors({ [result.field]: result.error });
+        throw new Error(result.error || 'save failed');
+      }
+      onSaved(result.profile);
+      setDirty(false);
+      haptic('success');
+      onToast('Профиль сохранён', 'success');
+    } catch {
+      haptic('error');
+      onToast('Не удалось сохранить. Попробуйте ещё раз.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+
+  async function removeSub(id) {
+    haptic('medium');
+    await fetch(`${API_BASE}/api/subscriptions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'X-Telegram-Init-Data': initData },
+    }).catch(() => {});
+    onReload();
+  }
+
+  const name = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Клиент';
+  const initial = name.trim().charAt(0).toUpperCase();
+  const requests = data?.requests || [];
+  const subs = data?.subscriptions || [];
+  const since = profile?.createdAt ? monthGenitive(profile.createdAt) : null;
+
+  return (
+    <div className="page profile-page">
+      <section className="profile-head">
+        <span className="profile-avatar">
+          {user?.photo_url ? <img src={user.photo_url} alt="" /> : initial}
+        </span>
+        <div>
+          <h1>{name}</h1>
+          <p className="muted">
+            {user?.username ? `@${user.username}` : 'Telegram'}
+            {since ? ` · с нами с ${since}` : ''}
+          </p>
+        </div>
+      </section>
+
+      <div className="profile-stats">
+        <button type="button" onClick={onFavorites}>
+          <span>Избранное</span>
+          <strong>{favoritesCount}</strong>
+        </button>
+        <button type="button" onClick={() => document.getElementById('profile-subs')?.scrollIntoView({ behavior: 'smooth' })}>
+          <span>Подписки</span>
+          <strong>{subs.length}</strong>
+        </button>
+      </div>
+
+      {isAdmin && (
+        <button className="admin-deals-link" type="button" onClick={onDeals}>
+          <span>🚚</span>
+          <div>
+            <strong>Сделки клиентов</strong>
+            <em>Отмечайте покупки и ведите авто до выдачи</em>
+          </div>
+          <b aria-hidden="true">→</b>
+        </button>
+      )}
+
+      {(data?.deals || []).map((deal) => (
+        <DealTracker key={deal.id} deal={deal} stages={data.stages || []} initData={initData} onReload={onReload} onToast={onToast} />
+      ))}
+
+      <section className="profile-block">
+        <h2>Мои заявки</h2>
+        {!data && <p className="muted">Загружаем…</p>}
+        {data && requests.length === 0 && (
+          <div className="profile-empty">
+            <p className="muted">Заявок пока нет. Выберите авто в каталоге или заполните анкету — менеджер подберёт варианты.</p>
+            <button className="btn btn-ghost" type="button" onClick={onWish}>Заполнить анкету</button>
+          </div>
+        )}
+        {requests.map((item) => {
+          const status = REQUEST_STATUS_LABEL[item.status] || REQUEST_STATUS_LABEL.new;
+          return (
+            <div className="request-row" key={item.id}>
+              <div className="request-top">
+                <strong>{item.type === 'wish' ? 'Анкета подбора' : item.title}</strong>
+                <span className={`request-status ${status.tone}`}>{status.text}</span>
+              </div>
+              <span className="request-meta">
+                {formatShortDate(item.createdAt)}
+                {item.summary ? ` · ${item.summary}` : ''}
+              </span>
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="profile-block" id="profile-subs">
+        <h2>Мои подписки</h2>
+        {subs.length === 0 ? (
+          <div className="profile-empty">
+            <p className="muted">Задайте фильтры в каталоге и нажмите «Сообщить о новых» — бот напишет, как только появится подходящее авто.</p>
+            <button className="btn btn-ghost" type="button" onClick={onCatalog}>Настроить в каталоге</button>
+          </div>
+        ) : (
+          subs.map((item) => (
+            <div className="sub-row" key={item.id}>
+              <span className="sub-icon small"><IconBell /></span>
+              <div>
+                <strong>{item.label || 'Все автомобили'}</strong>
+                <span>{item.priceDrops ? 'Новые авто и снижение цены' : 'Только новые авто'}</span>
+              </div>
+              <button className="sub-remove" onClick={() => removeSub(item.id)} type="button" aria-label="Удалить подписку">×</button>
+            </div>
+          ))
+        )}
+      </section>
+
+      {recentCars.length > 0 && (
+        <section className="profile-block">
+          <h2>Недавно смотрели</h2>
+          <div className="recent-row">
+            {recentCars.map((car) => (
+              <button className="recent-card" key={car.id} type="button" onClick={() => onCar(car)}>
+                <CarImage src={car.photoUrl} alt="" />
+                <strong>{carName(car)}</strong>
+                <span>{car.status === 'hidden' ? 'Продано' : formatPrice(car.price)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <form className="profile-block profile-form" onSubmit={save} noValidate>
+        <h2>Контакты</h2>
+        <p className="muted">Подставятся в заявки автоматически — вводить каждый раз не нужно.</p>
+
+        <label htmlFor="pf-phone">Телефон</label>
+        <input id="pf-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="+7 999 123-45-67"
+          value={form.phone} onChange={(event) => update('phone', event.target.value)} aria-invalid={Boolean(errors.phone)} />
+        {errors.phone && <p className="form-error" role="alert">{errors.phone}</p>}
+
+        <label htmlFor="pf-email">Почта</label>
+        <input id="pf-email" type="email" inputMode="email" autoComplete="email" placeholder="name@mail.ru"
+          value={form.email} onChange={(event) => update('email', event.target.value)} aria-invalid={Boolean(errors.email)} />
+        {errors.email && <p className="form-error" role="alert">{errors.email}</p>}
+
+        <label htmlFor="pf-city">Город доставки</label>
+        <input id="pf-city" type="text" autoComplete="address-level2" placeholder="Новосибирск"
+          value={form.city} onChange={(event) => update('city', event.target.value)} />
+
+        <label className="switch-row">
+          <span>Сообщать о новых авто и снижении цен</span>
+          <input type="checkbox" checked={form.notifications} onChange={(event) => update('notifications', event.target.checked)} />
+          <i aria-hidden="true" />
+        </label>
+
+        <button className="btn btn-primary" type="submit" disabled={saving || !dirty}>
+          {saving ? <span className="spinner" /> : dirty ? 'Сохранить' : 'Сохранено'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function FavoritesPage({ cars, favorites, onCar, onFavorite, onCatalog, initData }) {
   return (
     <div className="page">
@@ -3185,8 +3905,8 @@ function SpecItem({ label, value, mono = false }) {
    LEAD MODAL
    ========================================================= */
 
-function LeadModal({ car, user, onClose, onSent }) {
-  const [phone, setPhone] = useState('');
+function LeadModal({ car, user, defaultPhone = '', onClose, onSent }) {
+  const [phone, setPhone] = useState(defaultPhone);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const sold = car.status === 'hidden';
@@ -3212,7 +3932,7 @@ function LeadModal({ car, user, onClose, onSent }) {
 
       const response = await fetch(`${API_BASE}/api/leads`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': getTelegram()?.initData || '' },
         body: JSON.stringify({
           carId: car.id,
           brand: sold ? `🔁 ХОЧЕТ ТАКОЙ ЖЕ (проданный): ${car.brand || ''}` : car.brand,
