@@ -357,6 +357,8 @@ function App() {
     const fromTelegram = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
     if (fromUrl === 'wish' || fromTelegram === 'wish') return 'wish';
     if (fromUrl === 'calc' || fromTelegram === 'calc') return 'calc';
+    const direct = ['archive', 'favorites', 'catalog'].find(name => fromUrl === name || fromTelegram === name);
+    if (direct) return direct;
     return 'home';
   });
   const [returnPage, setReturnPage] = useState('catalog');
@@ -1217,6 +1219,7 @@ const STEPS = [
   ['Покупка', 'Выкупаем автомобиль и готовим документы.'],
   ['Доставка', 'Везём из Китая и проходим таможенное оформление.'],
   ['Выдача', 'Вы забираете автомобиль в Уссурийске.'],
+  ['Доставка до дома', 'По желанию привезём автовозом в ваш город — прямо к дому.'],
 ];
 
 const INCLUDED = [
