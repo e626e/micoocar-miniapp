@@ -4357,3 +4357,61 @@ p {
   gap: 8px;
   margin-top: 6px;
 }
+
+/* Подтверждение телефона и почты */
+
+.verify-ok {
+  font-size: 13px;
+  font-weight: 800;
+  color: #2f6a2c;
+}
+
+.verify-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.verify-button {
+  justify-self: start;
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid rgba(95, 109, 53, 0.25);
+}
+
+.verify-button[disabled] {
+  opacity: 0.6;
+}
+
+.email-verify {
+  display: grid;
+  gap: 8px;
+}
+
+.code-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.code-row input {
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+
+.code-row .btn {
+  height: 50px;
+  padding: 0 16px;
+}
+
+.email-verify .link-button {
+  justify-self: start;
+}
+
+.email-verify .link-button[disabled] {
+  color: var(--dim);
+}

@@ -3211,6 +3211,156 @@ function NewDealForm({ data, cars, initData, onCancel, onCreated }) {
   );
 }
 
+const sameDigits = (a, b) => String(a || '').replace(/\D/g, '') === String(b || '').replace(/\D/g, '');
+
+function PhoneVerify({ profile, phone, onReload, onToast }) {
+  const [waiting, setWaiting] = useState(false);
+  const verified = profile?.phoneVerified && sameDigits(profile.phone, phone) && phone.trim();
+
+  if (verified) return <p className="verify-ok">✓ Номер подтверждён через Telegram</p>;
+
+  function pollProfile() {
+    setWaiting(true);
+    [1500, 3500, 7000, 12000].forEach((delay) => setTimeout(onReload, delay));
+    setTimeout(() => setWaiting(false), 12500);
+  }
+
+  function verify() {
+    haptic('light');
+    const tg = getTelegram();
+    if (tg?.requestContact && tg.isVersionAtLeast?.('6.9')) {
+      tg.requestContact((shared) => {
+        if (shared) {
+          onToast('Номер получен, подтверждаем…');
+          pollProfile();
+        }
+      });
+      return;
+    }
+    const link = 'https://t.me/micoocarbot?start=phone';
+    if (tg?.openTelegramLink) tg.openTelegramLink(link);
+    else window.open(link, '_blank');
+  }
+
+  return (
+    <button className="verify-button" type="button" onClick={verify} disabled={waiting}>
+      {waiting ? 'Проверяем…' : '📱 Подтвердить номер через Telegram'}
+    </button>
+  );
+}
+
+function EmailVerify({ profile, email, initData, onVerified, onToast }) {
+  const [sentTo, setSentTo] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+  const value = email.trim().toLowerCase();
+  const verified = profile?.emailVerified && profile.email === value && value;
+
+  useEffect(() => {
+    if (!cooldown) return undefined;
+    const timer = setTimeout(() => setCooldown((left) => Math.max(0, left - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  if (verified) return <p className="verify-ok">✓ Почта подтверждена</p>;
+  if (!value) return null;
+  if (!profile?.emailVerifyAvailable) return <p className="verify-hint">Подтверждение почты кодом появится совсем скоро.</p>;
+
+  async function send() {
+    if (busy || cooldown) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
+      setError('Проверьте адрес почты');
+      return;
+    }
+    try {
+      setBusy(true);
+      setError('');
+      const response = await fetch(`${API_BASE}/api/profile/email/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
+        body: JSON.stringify({ email: value }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось отправить код');
+      setSentTo(value);
+      setCode('');
+      setCooldown(60);
+      haptic('success');
+      onToast(`Код отправлен на ${value}`, 'success');
+    } catch (err) {
+      setError(err.message);
+      haptic('error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm() {
+    if (busy) return;
+    if (code.replace(/\D/g, '').length !== 6) {
+      setError('Введите 6 цифр из письма');
+      return;
+    }
+    try {
+      setBusy(true);
+      setError('');
+      const response = await fetch(`${API_BASE}/api/profile/email/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
+        body: JSON.stringify({ code }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Неверный код');
+      haptic('success');
+      setSentTo('');
+      onVerified(data.profile);
+      onToast('Почта подтверждена', 'success');
+    } catch (err) {
+      setError(err.message);
+      haptic('error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const waitingCode = sentTo && sentTo === value;
+
+  return (
+    <div className="email-verify">
+      {waitingCode ? (
+        <>
+          <p className="verify-hint">Мы отправили код на {sentTo}. Если письма нет — проверьте «Спам».</p>
+          <div className="code-row">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              placeholder="000000"
+              value={code}
+              onChange={(event) => { setCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+              aria-label="Код из письма"
+            />
+            <button className="btn btn-primary" type="button" onClick={confirm} disabled={busy}>
+              {busy ? <span className="spinner" /> : 'Подтвердить'}
+            </button>
+          </div>
+          <button className="link-button" type="button" onClick={send} disabled={busy || cooldown > 0}>
+            {cooldown ? `Отправить ещё раз через ${cooldown} с` : 'Отправить код ещё раз'}
+          </button>
+        </>
+      ) : (
+        <button className="verify-button" type="button" onClick={send} disabled={busy}>
+          {busy ? 'Отправляем…' : '✉️ Подтвердить почту — получить код'}
+        </button>
+      )}
+      {error && <p className="form-error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
 function ProfilePage({ user, initData, data, onSaved, onReload, favoritesCount, recentCars, onCar, onFavorites, onCatalog, onWish, onToast, isAdmin, onDeals }) {
   const profile = data?.profile;
   const [form, setForm] = useState({ phone: '', email: '', city: '', notifications: true });
@@ -3410,11 +3560,22 @@ function ProfilePage({ user, initData, data, onSaved, onReload, favoritesCount, 
         <input id="pf-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="+7 999 123-45-67"
           value={form.phone} onChange={(event) => update('phone', event.target.value)} aria-invalid={Boolean(errors.phone)} />
         {errors.phone && <p className="form-error" role="alert">{errors.phone}</p>}
+        <PhoneVerify profile={profile} phone={form.phone} onReload={onReload} onToast={onToast} />
 
         <label htmlFor="pf-email">Почта</label>
         <input id="pf-email" type="email" inputMode="email" autoComplete="email" placeholder="name@mail.ru"
           value={form.email} onChange={(event) => update('email', event.target.value)} aria-invalid={Boolean(errors.email)} />
         {errors.email && <p className="form-error" role="alert">{errors.email}</p>}
+        <EmailVerify
+          profile={profile}
+          email={form.email}
+          initData={initData}
+          onVerified={(next) => {
+            onSaved(next);
+            setForm((current) => ({ ...current, email: next.email }));
+          }}
+          onToast={onToast}
+        />
 
         <label htmlFor="pf-city">Город доставки</label>
         <input id="pf-city" type="text" autoComplete="address-level2" placeholder="Новосибирск"
