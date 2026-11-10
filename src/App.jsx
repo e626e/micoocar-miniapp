@@ -731,7 +731,6 @@ function App() {
           <WishPage
             cars={publishedCars}
             user={user}
-            defaultPhone={profileData?.profile?.phone || ''}
             onSent={loadProfile}
             onCar={openCar}
             onCatalog={() => navigate('catalog')}
@@ -825,7 +824,6 @@ function App() {
         <LeadModal
           car={leadCar}
           user={user}
-          defaultPhone={profileData?.profile?.phone || ''}
           onClose={() => setLeadCar(null)}
           onSent={() => {
             setLeadCar(null);
@@ -1568,11 +1566,11 @@ function matchCars(cars, answers) {
   });
 }
 
-function WishPage({ cars, user, defaultPhone = '', onSent, onCar, onCatalog, onExit }) {
+function WishPage({ cars, user, onSent, onCar, onCatalog, onExit }) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState({});
   const [customs, setCustoms] = useState({});
-  const [phone, setPhone] = useState(defaultPhone);
+  const [phone, setPhone] = useState('');
   const [comment, setComment] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -1807,6 +1805,8 @@ function WishPage({ cars, user, defaultPhone = '', onSent, onCar, onCatalog, onE
               {user.username ? ` · @${user.username}` : ''}
             </p>
           )}
+
+          <p className="consent-note">Отправляя заявку, вы соглашаетесь на обработку номера телефона и имени в Telegram, чтобы менеджер MICOOR CAR мог связаться с вами.</p>
 
           {matches.length > 0 && (
             <p className="wish-hint">Под ваши ответы уже подходит авто в каталоге: {matches.length}</p>
@@ -2978,6 +2978,7 @@ function ReviewForm({ deal, initData, onDone }) {
           </label>
         )}
       </div>
+      <p className="consent-note">Отправляя отзыв, вы соглашаетесь, что его текст, ваше имя из Telegram и фото будут опубликованы в мини‑приложении MICOOR CAR. Снять отзыв с публикации можно по запросу менеджеру.</p>
       {error && <p className="form-error" role="alert">{error}</p>}
       <button className="btn btn-primary" type="submit" disabled={sending}>
         {sending ? <span className="spinner" /> : 'Отправить отзыв'}
@@ -3096,14 +3097,13 @@ function AdminDealCard({ deal, stages, initData, open, onToggle, onSaved, onToas
       <button className="admin-deal-head" type="button" onClick={onToggle} aria-expanded={open}>
         <div>
           <strong>{deal.title}</strong>
-          <span>{deal.client}{deal.city ? ` · ${deal.city}` : ''}</span>
+          <span>{deal.client}</span>
         </div>
         <em className={`deal-stage-pill ${deal.stage}`}>{current ? `${current.emoji} ${current.title}` : deal.stage}</em>
       </button>
 
       {open && (
         <div className="admin-deal-body">
-          {deal.phone && <a className="link-button" href={`tel:${deal.phone.replace(/[^\d+]/g, '')}`}>📞 {deal.phone}</a>}
           <DealTimeline deal={deal} stages={stages} />
 
           <label className="deal-label">Этап</label>
@@ -3211,168 +3211,14 @@ function NewDealForm({ data, cars, initData, onCancel, onCreated }) {
   );
 }
 
-const sameDigits = (a, b) => String(a || '').replace(/\D/g, '') === String(b || '').replace(/\D/g, '');
-
-function PhoneVerify({ profile, phone, onReload, onToast }) {
-  const [waiting, setWaiting] = useState(false);
-  const verified = profile?.phoneVerified && sameDigits(profile.phone, phone) && phone.trim();
-
-  if (verified) return <p className="verify-ok">✓ Номер подтверждён через Telegram</p>;
-
-  function pollProfile() {
-    setWaiting(true);
-    [1500, 3500, 7000, 12000].forEach((delay) => setTimeout(onReload, delay));
-    setTimeout(() => setWaiting(false), 12500);
-  }
-
-  function verify() {
-    haptic('light');
-    const tg = getTelegram();
-    if (tg?.requestContact && tg.isVersionAtLeast?.('6.9')) {
-      tg.requestContact((shared) => {
-        if (shared) {
-          onToast('Номер получен, подтверждаем…');
-          pollProfile();
-        }
-      });
-      return;
-    }
-    const link = 'https://t.me/micoocarbot?start=phone';
-    if (tg?.openTelegramLink) tg.openTelegramLink(link);
-    else window.open(link, '_blank');
-  }
-
-  return (
-    <button className="verify-button" type="button" onClick={verify} disabled={waiting}>
-      {waiting ? 'Проверяем…' : '📱 Подтвердить номер через Telegram'}
-    </button>
-  );
-}
-
-function EmailVerify({ profile, email, initData, onVerified, onToast }) {
-  const [sentTo, setSentTo] = useState('');
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [cooldown, setCooldown] = useState(0);
-  const value = email.trim().toLowerCase();
-  const verified = profile?.emailVerified && profile.email === value && value;
-
-  useEffect(() => {
-    if (!cooldown) return undefined;
-    const timer = setTimeout(() => setCooldown((left) => Math.max(0, left - 1)), 1000);
-    return () => clearTimeout(timer);
-  }, [cooldown]);
-
-  if (verified) return <p className="verify-ok">✓ Почта подтверждена</p>;
-  if (!value) return null;
-  if (!profile?.emailVerifyAvailable) return <p className="verify-hint">Подтверждение почты кодом появится совсем скоро.</p>;
-
-  async function send() {
-    if (busy || cooldown) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
-      setError('Проверьте адрес почты');
-      return;
-    }
-    try {
-      setBusy(true);
-      setError('');
-      const response = await fetch(`${API_BASE}/api/profile/email/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
-        body: JSON.stringify({ email: value }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) throw new Error(data.error || 'Не удалось отправить код');
-      setSentTo(value);
-      setCode('');
-      setCooldown(60);
-      haptic('success');
-      onToast(`Код отправлен на ${value}`, 'success');
-    } catch (err) {
-      setError(err.message);
-      haptic('error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirm() {
-    if (busy) return;
-    if (code.replace(/\D/g, '').length !== 6) {
-      setError('Введите 6 цифр из письма');
-      return;
-    }
-    try {
-      setBusy(true);
-      setError('');
-      const response = await fetch(`${API_BASE}/api/profile/email/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
-        body: JSON.stringify({ code }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) throw new Error(data.error || 'Неверный код');
-      haptic('success');
-      setSentTo('');
-      onVerified(data.profile);
-      onToast('Почта подтверждена', 'success');
-    } catch (err) {
-      setError(err.message);
-      haptic('error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const waitingCode = sentTo && sentTo === value;
-
-  return (
-    <div className="email-verify">
-      {waitingCode ? (
-        <>
-          <p className="verify-hint">Мы отправили код на {sentTo}. Если письма нет — проверьте «Спам».</p>
-          <div className="code-row">
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              placeholder="000000"
-              value={code}
-              onChange={(event) => { setCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
-              aria-label="Код из письма"
-            />
-            <button className="btn btn-primary" type="button" onClick={confirm} disabled={busy}>
-              {busy ? <span className="spinner" /> : 'Подтвердить'}
-            </button>
-          </div>
-          <button className="link-button" type="button" onClick={send} disabled={busy || cooldown > 0}>
-            {cooldown ? `Отправить ещё раз через ${cooldown} с` : 'Отправить код ещё раз'}
-          </button>
-        </>
-      ) : (
-        <button className="verify-button" type="button" onClick={send} disabled={busy}>
-          {busy ? 'Отправляем…' : '✉️ Подтвердить почту — получить код'}
-        </button>
-      )}
-      {error && <p className="form-error" role="alert">{error}</p>}
-    </div>
-  );
-}
-
 function ProfilePage({ user, initData, data, onSaved, onReload, favoritesCount, recentCars, onCar, onFavorites, onCatalog, onWish, onToast, isAdmin, onDeals }) {
   const profile = data?.profile;
-  const [form, setForm] = useState({ phone: '', email: '', city: '', notifications: true });
-  const [errors, setErrors] = useState({});
+  const [notifications, setNotifications] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
-    if (profile && !dirty) {
-      setForm({ phone: profile.phone, email: profile.email, city: profile.city, notifications: profile.notifications });
-    }
-  }, [profile, dirty]);
+    if (profile) setNotifications(profile.notifications);
+  }, [profile]);
 
   useEffect(() => { onReload?.(); }, [onReload]);
 
@@ -3389,50 +3235,28 @@ function ProfilePage({ user, initData, data, onSaved, onReload, favoritesCount, 
     );
   }
 
-  function update(field, value) {
-    setForm((current) => ({ ...current, [field]: value }));
-    setErrors((current) => ({ ...current, [field]: '' }));
-    setDirty(true);
-  }
-
-  async function save(event) {
-    event?.preventDefault();
+  async function toggleNotifications(value) {
     if (saving) return;
-
-    const next = {};
-    const phoneDigits = form.phone.replace(/\D/g, '');
-    if (form.phone.trim() && (phoneDigits.length < 7 || phoneDigits.length > 15)) next.phone = 'Введите номер с кодом страны, например +7 999 123-45-67';
-    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) next.email = 'Проверьте адрес, например name@mail.ru';
-    if (Object.keys(next).length) {
-      setErrors(next);
-      haptic('error');
-      return;
-    }
-
+    const previous = notifications;
+    setNotifications(value);
+    haptic('light');
     try {
       setSaving(true);
       const response = await fetch(`${API_BASE}/api/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ notifications: value }),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success) {
-        if (result.field) setErrors({ [result.field]: result.error });
-        throw new Error(result.error || 'save failed');
-      }
+      if (!response.ok || !result.success) throw new Error('save failed');
       onSaved(result.profile);
-      setDirty(false);
-      haptic('success');
-      onToast('Профиль сохранён', 'success');
     } catch {
-      haptic('error');
+      setNotifications(previous);
       onToast('Не удалось сохранить. Попробуйте ещё раз.');
     } finally {
       setSaving(false);
     }
   }
-
 
   async function removeSub(id) {
     haptic('medium');
@@ -3552,45 +3376,15 @@ function ProfilePage({ user, initData, data, onSaved, onReload, favoritesCount, 
         </section>
       )}
 
-      <form className="profile-block profile-form" onSubmit={save} noValidate>
-        <h2>Контакты</h2>
-        <p className="muted">Подставятся в заявки автоматически — вводить каждый раз не нужно.</p>
-
-        <label htmlFor="pf-phone">Телефон</label>
-        <input id="pf-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="+7 999 123-45-67"
-          value={form.phone} onChange={(event) => update('phone', event.target.value)} aria-invalid={Boolean(errors.phone)} />
-        {errors.phone && <p className="form-error" role="alert">{errors.phone}</p>}
-        <PhoneVerify profile={profile} phone={form.phone} onReload={onReload} onToast={onToast} />
-
-        <label htmlFor="pf-email">Почта</label>
-        <input id="pf-email" type="email" inputMode="email" autoComplete="email" placeholder="name@mail.ru"
-          value={form.email} onChange={(event) => update('email', event.target.value)} aria-invalid={Boolean(errors.email)} />
-        {errors.email && <p className="form-error" role="alert">{errors.email}</p>}
-        <EmailVerify
-          profile={profile}
-          email={form.email}
-          initData={initData}
-          onVerified={(next) => {
-            onSaved(next);
-            setForm((current) => ({ ...current, email: next.email }));
-          }}
-          onToast={onToast}
-        />
-
-        <label htmlFor="pf-city">Город доставки</label>
-        <input id="pf-city" type="text" autoComplete="address-level2" placeholder="Новосибирск"
-          value={form.city} onChange={(event) => update('city', event.target.value)} />
-
+      <section className="profile-block">
+        <h2>Уведомления</h2>
         <label className="switch-row">
           <span>Сообщать о новых авто и снижении цен</span>
-          <input type="checkbox" checked={form.notifications} onChange={(event) => update('notifications', event.target.checked)} />
+          <input type="checkbox" checked={notifications} disabled={saving} onChange={(event) => toggleNotifications(event.target.checked)} />
           <i aria-hidden="true" />
         </label>
-
-        <button className="btn btn-primary" type="submit" disabled={saving || !dirty}>
-          {saving ? <span className="spinner" /> : dirty ? 'Сохранить' : 'Сохранено'}
-        </button>
-      </form>
+        <p className="muted">Сообщения о ваших заявках и купленном авто приходят всегда.</p>
+      </section>
     </div>
   );
 }
@@ -4066,8 +3860,8 @@ function SpecItem({ label, value, mono = false }) {
    LEAD MODAL
    ========================================================= */
 
-function LeadModal({ car, user, defaultPhone = '', onClose, onSent }) {
-  const [phone, setPhone] = useState(defaultPhone);
+function LeadModal({ car, user, onClose, onSent }) {
+  const [phone, setPhone] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const sold = car.status === 'hidden';
@@ -4169,6 +3963,8 @@ function LeadModal({ car, user, defaultPhone = '', onClose, onSent }) {
               {user.username ? ` · @${user.username}` : ''}
             </p>
           )}
+
+          <p className="consent-note">Отправляя заявку, вы соглашаетесь на обработку номера телефона и имени в Telegram, чтобы менеджер MICOOR CAR мог связаться с вами.</p>
 
           {error && <p className="form-error" role="alert">{error}</p>}
 

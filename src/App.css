@@ -4415,3 +4415,9 @@ p {
 .email-verify .link-button[disabled] {
   color: var(--dim);
 }
+
+.consent-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--dim);
+}
